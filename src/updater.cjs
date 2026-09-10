@@ -66,7 +66,9 @@ function cargar() {
   autoUpdater.on('update-available', (info) => emitir({
     fase: 'disponible',
     version: info?.version || null,
-    // Las notas del release pueden venir como string o como lista de entradas.
+    /* Las notas vienen como string o como lista de entradas. Se guardan pero
+       NO se pintan: es HTML escrito en un release de GitHub, y meterlo en la
+       vista sería inyectar markup de afuera en la interfaz. */
     notas: typeof info?.releaseNotes === 'string' ? info.releaseNotes : null,
     progreso: 0,
   }));
@@ -99,9 +101,13 @@ function cargar() {
 function traducir(err) {
   const m = String(err?.message || err || '');
   if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|net::/i.test(m)) return 'No hay conexión con GitHub';
-  if (/404|Cannot find latest/i.test(m)) return 'Todavía no hay ninguna versión publicada';
+  if (/404|Cannot find latest|No published versions/i.test(m)) return 'Todavía no hay ninguna versión publicada';
   if (/403|rate limit/i.test(m)) return 'GitHub está limitando las consultas; probá más tarde';
   if (/signature|signed/i.test(m)) return 'La firma del instalador no se pudo verificar';
+  /* Sin app-update.yml no hay a dónde ir a buscar. Pasa si la app se corre
+     desde una carpeta empaquetada a mano en vez de instalada. El mensaje
+     crudo trae la ruta absoluta de quien compiló, que no le sirve a nadie. */
+  if (/ENOENT.*app-update\.yml/i.test(m)) return 'Esta copia no está preparada para actualizarse: instalá la app desde el instalador';
   return m.split('\n')[0] || 'Falló la actualización';
 }
 
