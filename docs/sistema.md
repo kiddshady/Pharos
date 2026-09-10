@@ -283,6 +283,16 @@ Las acciones van en `.ox-rowactions` (aparecen con el hover).
 `.ox-table` + `.ox-tr`; `.ox-td--num` alinea a la derecha con cifras tabulares,
 `.ox-td--tight` achica el padding.
 
+**`.ox-td--num` va también en el `<th>`, no solo en las celdas.** Si el
+encabezado no la lleva, el título se queda a la izquierda mientras los números
+van a la derecha y la columna se lee corrida — los valores no caen debajo de su
+propio título. Y ojo, que la clase esté puesta no alcanzaba: `.ox-table th`
+trae `text-align: left` con especificidad (0,1,1) y le ganaba a `.ox-td--num`
+(0,1,0), así que el `<th>` marcado seguía alineando mal. Por eso existe la
+regla `.ox-table th.ox-td--num`. Se descubrió en la tabla de presentaciones con
+el descuento puesto, que tiene cuatro columnas numéricas: 82px de desfase. El
+de humo lo mide.
+
 `.ox-kv` para pares clave/valor (`__k` / `__v`). El valor va en **una línea** y
 lo que no entra se elipsa; el que tiene que envolver —un SMILES, un hash largo—
 lo pide con `.ox-kv__v--wrap`. `.ox-stat` para una cifra grande (`__value` /
