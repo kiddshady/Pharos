@@ -33,6 +33,20 @@
 
 const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('path');
+
+/* ── Dónde viven los datos ───────────────────────────────────────────────────
+   En desarrollo, `data/` al lado del código: se ve, se abre con un editor y se
+   arregla a mano. Instalada, esa carpeta queda ADENTRO del asar —que es de
+   solo lectura— y encima colgando de Program Files, donde una app de usuario
+   no escribe. Ahí los datos van al userData del sistema.
+
+   Esto tiene que correr ANTES del require de store.cjs: su ROOT se resuelve
+   una sola vez, cuando el módulo se carga. Puesto después, la variable llega
+   tarde y la app instalada intenta escribir adentro del paquete. */
+if (app.isPackaged && !process.env.PHAROS_DATA) {
+  process.env.PHAROS_DATA = path.join(app.getPath('userData'), 'data');
+}
+
 const ipc = require('./src/ipc.cjs');
 const store = require('./src/store.cjs');
 

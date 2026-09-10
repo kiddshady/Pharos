@@ -2,7 +2,7 @@
   "name": "pharos",
   "productName": "Pharos",
   "version": "0.1.0",
-  "description": "Pharos — app de escritorio construida sobre Onyx.",
+  "description": "Precios de medicamentos del Manual Farmacéutico, sin la publicidad de por medio.",
   "main": "main.cjs",
   "author": "Fran",
   "license": "MIT",
@@ -10,9 +10,51 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "test": "node test/tokens.test.mjs && node test/store.test.mjs && node test/format.test.mjs && node test/alfabeta.test.mjs",
-    "smoke": "electron test/renderer.test.cjs"
+    "smoke": "electron test/renderer.test.cjs",
+    "icono": "electron tools/icono.cjs",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "40.10.2"
+    "electron": "40.10.2",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.fran.pharos",
+    "productName": "Pharos",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "src/**/*",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-instalador.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Pharos",
+      "installerLanguages": [
+        "es_ES"
+      ],
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

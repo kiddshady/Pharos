@@ -110,10 +110,38 @@ dato y qué antigüedad tiene. Es el peor error que podría cometer esta app.
 
 ---
 
+## Compilar el instalador
+
+```
+npm run icono    # regenera build/icon.png (solo si cambió la marca o el acento)
+npm run dist     # → dist/Pharos-<versión>-instalador.exe
+```
+
+Instalador NSIS **por usuario**: va a `%LOCALAPPDATA%\Programs\Pharos` y no pide
+permisos de administrador. Desinstalar no se lleva los datos.
+
+**Instalada, los datos no viven al lado del código.** `data/` quedaría adentro
+del asar —que es de solo lectura— y encima colgando de una carpeta donde una
+app de usuario no escribe, así que `main.cjs` redirige a `%APPDATA%\Pharos\data`
+cuando `app.isPackaged`. En desarrollo sigue siendo la carpeta del proyecto.
+Eso se decide **antes** del `require` de `store.cjs`: su raíz se resuelve una
+sola vez, al cargarse el módulo.
+
+**El .exe no está firmado.** La primera vez, Windows SmartScreen va a decir
+"Windows protegió tu PC": *Más información* → *Ejecutar de todas formas*.
+Firmarlo de verdad necesita un certificado de code signing pago.
+
+El ícono de la app no es el mismo dibujo que la marca de la titlebar, y es a
+propósito: la de la UI está hecha para 16px y a 256 se lee como una antena.
+`tools/icono.cjs` tiene la versión con detalle y explica por qué.
+
+---
+
 ## Los datos
 
-Archivos JSON legibles en `data/`, no en AppData. `PHAROS_DATA` mueve la
-carpeta.
+Archivos JSON legibles, uno por cosa: se abren con un editor, se leen y se
+arreglan a mano. En desarrollo viven en `data/`, al lado del código; instalada,
+en `%APPDATA%\Pharos\data` (ver arriba). `PHAROS_DATA` manda sobre las dos.
 
 ```
 data/settings.json    descuento, vigencia del caché, último índice usado
