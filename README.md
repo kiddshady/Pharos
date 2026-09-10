@@ -5,7 +5,7 @@ anuncios de por medio. Buscás por nombre, por droga o por laboratorio, y ves lo
 único que importa: qué cuesta, en qué presentación, de cuándo es ese precio y
 qué cubre la obra social.
 
-Construida sobre [Onyx](file:///C:/tools/Onyx).
+Construida sobre **Onyx**, la plantilla de apps de escritorio del autor.
 
 ```
 npm run dev     # con la consola del renderer en la terminal
