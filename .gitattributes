@@ -1,0 +1,9 @@
+# Los fixtures son respuestas REALES del sitio, guardadas con sus bytes
+# originales en ISO-8859-1. Si git les normaliza los finales de línea dejan de
+# ser lo que alfabeta.net manda, y el test pasa a probar otra cosa.
+test/fixtures/*.html -text
+
+# Binarios: que nadie los toque.
+*.woff2 binary
+*.png binary
+*.ico binary

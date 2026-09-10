@@ -1,0 +1,200 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONYX — helpers de vista
+   Lo que necesitan todas las vistas: pintar, encabezar, escapar, y mostrar
+   estado. Nada de acá sabe de tu dominio; si tenés que importar algo de tu app
+   en este archivo, va en el tuyo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+import { Icons } from './icons.js';
+import { Toast } from './overlays.js';
+import { initScrollFades } from './motion.js';
+
+/** El contenedor de la vista activa. Lazy: no asume cuándo corre este módulo. */
+let _view = null;
+export function viewEl() {
+  if (!_view || !_view.isConnected) _view = document.getElementById('view');
+  return _view;
+}
+
+/* ── Escape ──────────────────────────────────────────────────────────────────
+   Estas vistas arman HTML con plantillas, así que TODO dato que venga de
+   afuera pasa por acá. No es paranoia: el nombre de un archivo con un "<" ya
+   alcanza para romper el layout, y un mensaje de error puede traer cualquier
+   cosa. Cuando el dato es puro texto, preferí .textContent y ni pienses. */
+export function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/* ── Color: de CSS a hex ─────────────────────────────────────────────────────
+   Electron solo entiende hex, y la paleta está en oklch. Traducir es
+   inevitable; hacerlo con un regex, no.
+
+   Esto se pinta en un canvas de 1×1 y lee el píxel A PROPÓSITO. La versión
+   anterior le sacaba los números al texto del color computado, y funcionó
+   durante años porque el navegador siempre devolvía `rgb(10, 11, 13)`. Desde
+   Chromium 144 (Electron 40) el valor computado de una var en oklch se
+   devuelve tal cual:
+
+       getComputedStyle(el).color   →   "oklch(0.149 0.0046 258)"
+       .match(/\d+/g)               →   ["0", "149", "0", "0046", "258"]
+       .slice(0,3) → hex            →   "#009500"          ← VERDE
+
+   El 0.149 del lightness, partido en dos por el punto decimal, terminaba
+   siendo el canal verde. Con ese hex en setBackgroundColor(), la app arrancaba
+   con medio segundo de pantalla verde. Un hex válido, del color equivocado:
+   ninguna validación de forma lo agarra.
+
+   El canvas convierte cualquier notación —rgb, oklch, color(display-p3 …) y lo
+   que venga después— sin que haya nada que parsear.
+   Ver C:\tools\electron-dev-docs\METODO-Flash-Verde-Arranque-Electron-Win11.md */
+
+/** Un color CSS cualquiera, resuelto a `#rrggbb`. */
+export function aHex(colorCSS) {
+  if (!colorCSS) return null;
+  const lienzo = document.createElement('canvas');
+  lienzo.width = 1;
+  lienzo.height = 1;
+  const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = colorCSS;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** El valor resuelto de un token de color, en hex. `colorToken('--ox-bg')`. */
+export function colorToken(nombre) {
+  const probe = document.createElement('span');
+  probe.style.cssText = `position:fixed;left:-9999px;color:var(${nombre})`;
+  document.body.appendChild(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return aHex(color);
+}
+
+/* ── Estado: forma + luminancia + movimiento ─────────────────────────────────
+   La pieza central del sistema. La FORMA dice qué es la cosa, la LUMINANCIA si
+   está viva, y el MOVIMIENTO es exclusivo de lo que está corriendo ahora. Con
+   eso alcanza para leer una pantalla entera sin un solo color — que es
+   justamente el punto: el rojo queda libre para significar "se rompió". */
+
+/** Formas disponibles. Sumá las tuyas mapeando tipo → forma. */
+export const SHAPES = ['circle', 'square'];
+
+export const STATE_LABEL = {
+  idle: 'Sin usar',
+  queued: 'En cola',
+  running: 'Corriendo',
+  waiting: 'Esperando',
+  done: 'Listo',
+  skipped: 'Omitido',
+  failed: 'Falló',
+};
+
+/** Renombrá los estados con las palabras de tu dominio. */
+export function setStateLabels(map) {
+  Object.assign(STATE_LABEL, map);
+}
+
+export function mark(state, shape = 'circle') {
+  return `<span class="ox-mark ox-mark--${shape}" data-state="${esc(state)}">
+    <span class="ox-mark__halo"></span><span class="ox-mark__core"></span></span>`;
+}
+
+export function status(state, { shape = 'circle', label } = {}) {
+  return `<span class="ox-status" data-state="${esc(state)}">
+    ${mark(state, shape)}<span>${esc(label ?? STATE_LABEL[state] ?? state)}</span></span>`;
+}
+
+/**
+ * Una ruta que, cuando no entra, se recorta por el medio.
+ *
+ * Acá solo se parte en dos: la cabeza —que es la que cede— y los últimos
+ * `colas` segmentos, que son los que identifican la carpeta y quedan a salvo.
+ * El recorte de verdad lo hace `.ox-path` en CSS, porque cuánto entra depende
+ * del ancho de la ventana y eso desde JS habría que volver a medirlo en cada
+ * resize.
+ *
+ * El texto sigue completo en el DOM: recortar es visual, y arrastrar sobre la
+ * ruta la copia entera, con el pedazo escondido incluido.
+ */
+export function path(ruta, { colas = 2 } = {}) {
+  const s = String(ruta ?? '');
+  // El separador viaja con el segmento que abre, así ninguno de los dos pedazos
+  // empieza ni termina con una barra suelta al volver a unirlos.
+  const partes = s.split(/(?=[\\/])/);
+  const corte = Math.max(0, partes.length - colas);
+  return `<span class="ox-path">`
+    + `<span class="ox-path__head">${esc(partes.slice(0, corte).join(''))}</span>`
+    + `<span class="ox-path__tail">${esc(partes.slice(corte).join(''))}</span></span>`;
+}
+
+/* ── Pintar ──────────────────────────────────────────────────────────────── */
+
+/**
+ * Reemplaza la vista. Monta los íconos declarativos y cablea los esfumados de
+ * scroll: si pintás sin pasar por acá, los <i data-icon> quedan vacíos y los
+ * bordes del scroll se cortan duro.
+ */
+export function paint(html) {
+  const el = viewEl();
+  el.innerHTML = html;
+  Icons.mount(el);
+  initScrollFades(el);
+  return el;
+}
+
+/** Encabezado de vista: migas, título, subtítulo y acciones a la derecha. */
+export function head({ title, sub, crumbs, actions = '' } = {}) {
+  const crumbHTML = crumbs
+    ? `<nav class="ox-crumbs">${crumbs
+        .map((c, i) => (i ? '<i data-icon="chevronRight"></i>' : '')
+          + `<span class="ox-crumbs__item"${c.view ? ` data-goto="${esc(c.view)}"` : ''}`
+          + `${c.param ? ` data-param="${esc(c.param)}"` : ''}>${esc(c.label)}</span>`)
+        .join('')}</nav>`
+    : '';
+  return `
+    <div class="ox-viewhead">
+      <div class="ox-viewhead__text ox-grow">
+        ${crumbHTML}
+        <div class="ox-viewhead__title">${esc(title)}</div>
+        ${sub ? `<div class="ox-viewhead__sub">${esc(sub)}</div>` : ''}
+      </div>
+      <div class="ox-viewhead__actions">${actions}</div>
+    </div>`;
+}
+
+/** Estado vacío centrado — el que se usa cuando todavía no hay nada. */
+export function empty({ icon = 'inbox', title, text, actions = '' } = {}) {
+  return `<div class="ox-grow" style="display:grid;place-items:center">
+    <div class="ox-empty">${Icons.svg(icon)}
+      <div class="ox-empty__title">${esc(title)}</div>
+      ${text ? `<div class="ox-empty__text">${esc(text)}</div>` : ''}
+      ${actions ? `<div class="ox-row" style="gap:8px;margin-top:6px">${actions}</div>` : ''}
+    </div></div>`;
+}
+
+/* ── Errores ─────────────────────────────────────────────────────────────────
+   Toda acción que puede fallar pasa por acá. El punto no es "no romper": es
+   que el error se VEA. Un catch vacío convierte un bug en un misterio. */
+export async function attempt(fn, { errorTitle = 'No se pudo completar' } = {}) {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[${errorTitle}]`, err);
+    Toast.error(errorTitle, err?.message || String(err));
+    return null;
+  }
+}
+
+/** Copia al portapapeles y lo confirma — copiar en silencio no se siente. */
+export async function copy(text, { label = 'Copiado' } = {}) {
+  try {
+    await navigator.clipboard.writeText(String(text));
+    Toast.show({ title: label, text: String(text), icon: 'copy' });
+    return true;
+  } catch (err) {
+    Toast.error('No se pudo copiar', err.message);
+    return false;
+  }
+}
