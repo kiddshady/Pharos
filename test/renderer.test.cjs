@@ -193,6 +193,31 @@ app.whenReady().then(async () => {
       calc && !calc.error && Math.abs(calc.conDesc - calc.lista * 0.8) < 0.02, JSON.stringify(calc));
     ok('el ahorro cierra con la resta',
       calc && !calc.error && Math.abs(calc.ahorro - (calc.lista - calc.conDesc)) < 0.02, JSON.stringify(calc));
+
+    /* ── Los títulos de las columnas caen sobre sus cifras ──────────────────
+       Se mide el borde derecho del TEXTO con un Range, no el de la celda: el
+       rect de la celda abarca la columna entera y daría el mismo número
+       estuviera el texto donde estuviera — justo el defecto que se busca.
+
+       El bug: `.ox-table th` trae text-align:left y su especificidad (0,1,1)
+       le gana a `.ox-td--num` (0,1,0), así que el encabezado se quedaba a la
+       izquierda mientras los números iban a la derecha. Con el descuento
+       puesto son cuatro columnas numéricas y se lee todo corrido. */
+    const desfase = await js(`(() => {
+      const t = document.querySelector('.ox-table');
+      const ths = [...t.querySelectorAll('thead th')];
+      const tds = [...t.querySelector('tbody tr').querySelectorAll('td')];
+      const derecha = (el) => {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        return Math.round(r.getBoundingClientRect().right);
+      };
+      return ths.map((th, i) => (th.classList.contains('ox-td--num') && tds[i]
+        ? { col: th.textContent.trim(), d: Math.abs(derecha(th) - derecha(tds[i])) }
+        : null)).filter(Boolean);
+    })()`);
+    ok('los títulos numéricos caen sobre sus cifras',
+      desfase.length >= 3 && desfase.every((c) => c.d <= 2), JSON.stringify(desfase));
     ok('el descuento queda guardado',
       (await js(`window.onyx.settings.get().then((s) => s.descuento.porcentaje)`)) === 20);
 

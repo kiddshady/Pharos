@@ -287,6 +287,12 @@
 .ox-tr.is-selected td { background: var(--ox-wash-2); }
 .ox-tr.is-failed td:first-child { box-shadow: inset 2px 0 0 var(--ox-danger), inset 0 -1px 0 var(--ox-line); }
 .ox-td--num { text-align: right; font-variant-numeric: tabular-nums; }
+/* El encabezado de una columna numérica tiene que alinearse con sus cifras.
+   `.ox-table th` trae text-align:left y su especificidad (0,1,1) le gana a
+   `.ox-td--num` (0,1,0): sin esta regla el título queda pegado a la izquierda
+   mientras los números se van a la derecha, y la columna entera se lee
+   corrida — los valores no caen debajo de su propio título. */
+.ox-table th.ox-td--num { text-align: right; }
 .ox-td--tight { width: 1%; white-space: nowrap; }
 
 /* ── Tabs ─────────────────────────────────────────────────────────────────────
