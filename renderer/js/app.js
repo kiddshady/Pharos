@@ -85,6 +85,11 @@ const S = {
 
   /** El barrido de precios en curso, si hay uno. */
   barrido: null,
+
+  /** Lo último que informó el actualizador. Llega entero en cada cambio, así
+      que la vista se dibuja con esto y no lleva cuenta de nada. */
+  update: null,
+  avisadoDe: null,
 };
 
 /* ══ Datos en disco ══════════════════════════════════════════════════════════ */
@@ -754,6 +759,112 @@ function viewHistorial() {
     }</div>`);
 }
 
+/* ══ Actualizaciones ═════════════════════════════════════════════════════════
+   Tres pasos explícitos —buscar, descargar, instalar— y ninguno pasa solo.
+   Bajar noventa megas o reiniciar la app en medio de una consulta son cosas
+   que decide el usuario, no la app. */
+
+const FASE = {
+  inactivo: 'Sin verificar',
+  buscando: 'Buscando…',
+  'al-dia': 'Estás en la última versión',
+  disponible: 'Hay una versión nueva',
+  descargando: 'Descargando…',
+  lista: 'Lista para instalar',
+  error: 'No se pudo verificar',
+};
+
+function updateHTML() {
+  const u = S.update || { fase: 'inactivo', versionActual: S.info?.version, soportado: true };
+  const buscar = `<button class="ox-btn ox-btn--secondary ox-flashable" data-action="buscar-update">
+      ${Icons.svg('retry')} Buscar actualizaciones</button>`;
+
+  let accion = buscar;
+  if (u.fase === 'buscando') {
+    accion = `<span class="ox-meta">${Icons.spinner()} Buscando…</span>`;
+  } else if (u.fase === 'disponible') {
+    accion = `<button class="ox-btn ox-btn--primary ox-flashable" data-action="bajar-update">
+      ${Icons.svg('download')} Descargar ${esc(u.version || '')}</button>`;
+  } else if (u.fase === 'descargando') {
+    accion = `<div class="ox-row" style="gap:10px;align-items:center">
+      <div class="ox-meter" style="--ox-pct:${u.progreso};width:170px"><div class="ox-meter__fill"></div></div>
+      <span class="ox-meta ox-num">${u.progreso}%</span></div>`;
+  } else if (u.fase === 'lista') {
+    accion = `<button class="ox-btn ox-btn--primary ox-flashable" data-action="instalar-update">
+      ${Icons.svg('zap')} Reiniciar e instalar ${esc(u.version || '')}</button>`;
+  }
+
+  /* Corriendo desde el código fuente no hay con qué compararse. Decirlo es
+     mejor que mostrar un botón que no puede hacer nada. */
+  const nota = u.soportado === false
+    ? 'Las actualizaciones funcionan en la app instalada. Corriendo desde el código, actualizás con git.'
+    : 'Se busca sola al abrir la app, pero descargar e instalar los decidís vos.';
+
+  return `
+    <div class="ox-section">
+      <div class="ox-section__head"><span class="ox-section__title">Actualizaciones</span></div>
+      <div class="ox-card"><div class="ox-card__body">
+        <div class="ox-kv">
+          <span class="ox-kv__k">Instalada</span>
+          <span class="ox-kv__v ox-mono">${esc(u.versionActual || S.info?.version || '—')}</span>
+          <span class="ox-kv__k">Estado</span>
+          <span class="ox-kv__v">${esc(FASE[u.fase] || FASE.inactivo)}${
+            u.fase === 'disponible' && u.version ? `: <b>${esc(u.version)}</b>` : ''}</span>
+          ${u.error ? `<span class="ox-kv__k">Detalle</span>
+            <span class="ox-kv__v ox-danger">${esc(u.error)}</span>` : ''}
+        </div>
+        <div class="ox-row" style="gap:12px;align-items:center;margin-top:16px;flex-wrap:wrap">${accion}</div>
+        <span class="ox-field__hint" style="margin-top:12px;display:block">${esc(nota)}</span>
+      </div></div>
+    </div>`;
+}
+
+/** Repinta SOLO la caja de actualizaciones. Repintar Ajustes entera en cada
+    aviso de progreso le robaría el foco al campo de horas mientras escribís. */
+function pintarUpdate() {
+  if (Router.name !== 'ajustes') return;
+  const caja = document.getElementById('caja-update');
+  if (!caja) return;
+  caja.innerHTML = updateHTML();
+  Icons.mount(caja);
+}
+
+async function accionUpdate(a) {
+  if (a === 'buscar-update') {
+    S.update = await attempt(() => api.update.buscar(), { errorTitle: 'No se pudo buscar' });
+    pintarUpdate();
+    return;
+  }
+
+  if (a === 'bajar-update') {
+    // La descarga informa su progreso por el evento; acá solo se dispara.
+    api.update.descargar();
+    return;
+  }
+
+  if (a === 'instalar-update') {
+    const ok = await Modal.confirm({
+      title: '¿Instalar y reiniciar?',
+      sub: 'Pharos se va a cerrar para instalar la versión nueva y va a volver a abrirse sola. Tus favoritos, el historial y los ajustes quedan como están.',
+      confirmLabel: 'Instalar',
+    });
+    if (ok) api.update.instalar();
+  }
+}
+
+/** Un aviso discreto cuando aparece una versión nueva, una sola vez por
+    versión: repetirlo en cada arranque sería una app que te reta. */
+function avisarDeVersion(u) {
+  if (u.fase !== 'disponible' || !u.version || S.avisadoDe === u.version) return;
+  S.avisadoDe = u.version;
+  Toast.show({
+    title: `Hay una versión nueva (${u.version})`,
+    text: 'Está en Ajustes, cuando quieras.',
+    icon: 'zap',
+    duration: 6000,
+  });
+}
+
 /* ══ Vista: Ajustes ══════════════════════════════════════════════════════════ */
 
 function viewAjustes() {
@@ -808,6 +919,8 @@ function viewAjustes() {
             es más lento y le pega más al servidor.</span>
         </div></div>
       </div>
+
+      <div id="caja-update">${updateHTML()}</div>
 
       <div class="ox-section">
         <div class="ox-section__head"><span class="ox-section__title">La app</span></div>
@@ -953,6 +1066,7 @@ function acciones(a) {
   if (a === 'reintentar') abrirProducto(Router.param, { forzar: true });
   if (a === 'borrar-historial') borrarHistorial();
   if (a === 'vaciar-cache') vaciarCache();
+  if (a.endsWith('-update')) accionUpdate(a);
 }
 
 async function borrarHistorial() {
@@ -1021,6 +1135,10 @@ function registerCommands() {
     { id: 'nav-ajustes', group: 'Ir a', icon: 'settings', label: 'Ajustes', run: () => Router.go('ajustes') },
     { id: 'nav-piezas', group: 'Ir a', icon: 'layers', label: 'Piezas', hint: 'sistema visual', run: () => Router.go('piezas') },
     {
+      id: 'buscar-update', group: 'La app', icon: 'retry', label: 'Buscar actualizaciones',
+      run: () => { Router.go('ajustes'); accionUpdate('buscar-update'); },
+    },
+    {
       id: 'desc-toggle', group: 'Descuento', icon: 'porcentaje',
       label: d.activo ? `Apagar el descuento (${d.porcentaje}%)` : 'Aplicar el descuento',
       run: async () => {
@@ -1070,6 +1188,16 @@ async function boot() {
     console.error(err);
     return;
   }
+
+  /* El actualizador avisa por su cuenta cómo va. Se escucha UNA sola vez, acá:
+     suscribirse dentro de la vista de Ajustes dejaría un listener más por cada
+     visita, y a la tercera el progreso repintaría tres veces por aviso. */
+  S.update = await api.update.estado().catch(() => null);
+  api.update.on((u) => {
+    S.update = u;
+    avisarDeVersion(u);
+    pintarUpdate();
+  });
 
   registerCommands();
   updateChrome();

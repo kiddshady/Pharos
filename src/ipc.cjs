@@ -16,6 +16,7 @@ const { ipcMain, app } = require('electron');
 const store = require('./store.cjs');
 const alfabeta = require('./alfabeta.cjs');
 const cache = require('./cache.cjs');
+const updater = require('./updater.cjs');
 
 /* Las colecciones que el renderer puede tocar. Es una lista blanca a
    propósito: sin ella, cualquier bug en el renderer puede crear carpetas
@@ -87,6 +88,15 @@ function register() {
 
   handle('cache:estado', () => cache.estado());
   handle('cache:vaciar', () => cache.vaciar());
+
+  /* ── Actualizaciones ──────────────────────────────────────────────────────
+     Los tres pasos son explícitos y los dispara el usuario. El progreso no
+     vuelve por acá: viaja por el evento 'update:estado', porque una descarga
+     emite decenas de avisos y un invoke por cada uno sería absurdo. */
+  handle('update:estado', () => updater.actual());
+  handle('update:buscar', () => updater.buscar());
+  handle('update:descargar', () => updater.descargar());
+  handle('update:instalar', () => updater.instalar());
 }
 
 module.exports = { register, COLLECTIONS };

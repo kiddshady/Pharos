@@ -49,6 +49,7 @@ if (app.isPackaged && !process.env.PHAROS_DATA) {
 
 const ipc = require('./src/ipc.cjs');
 const store = require('./src/store.cjs');
+const updater = require('./src/updater.cjs');
 
 /* Color base de arranque. Tiene que coincidir con --ox-bg de tokens.css.
    Como --ox-bg es oklch y Electron solo entiende hex, el renderer se lo vuelve
@@ -131,6 +132,14 @@ function createWindow(state) {
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  /* Las actualizaciones necesitan la ventana para contarle al renderer en qué
+     van. El chequeo automático espera a que la app esté arriba: al arrancar
+     hay cosas más urgentes que hacer con la red, y un aviso de GitHub no puede
+     llegar antes que la app. Solo busca; descargar e instalar los decide el
+     usuario desde Ajustes. */
+  updater.init(win);
+  if (app.isPackaged) setTimeout(() => updater.buscar(), 5000);
 
   win.once('ready-to-show', () => {
     win.show();

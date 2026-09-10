@@ -114,6 +114,33 @@ app.whenReady().then(async () => {
     ok(`${v}: pinta y queda activa en el rail`, hijos > 0 && activo, `hijos=${hijos} activo=${activo}`);
   }
 
+  console.log('\n3-bis. La sección de actualizaciones');
+  await click('[data-view="ajustes"]');
+  await sleep(800);
+  ok('la caja de actualizaciones está', await js(`!!document.getElementById('caja-update')`));
+  /* Contra la versión que la app REPORTA, no contra un literal: así el test
+     no hay que tocarlo en cada release, y de paso prueba lo que importa —que
+     lo que se muestra sea lo que la app cree ser. */
+  const version = await js(`window.onyx.info().then((i) => i.version)`);
+  ok('y muestra la versión que la app reporta',
+    (await js(`document.getElementById('caja-update').textContent`)).includes(version),
+    `version=${version}`);
+
+  /* Corriendo desde el código fuente no hay contra qué compararse. Lo que se
+     prueba acá es que la app lo DIGA, en vez de ofrecer un botón que no puede
+     hacer nada o —peor— tirar un error de electron-updater sin traducir. */
+  await click('[data-action="buscar-update"]');
+  await sleep(1500);
+  const upd = await js(`window.onyx.update.estado()`);
+  ok('en desarrollo se declara no soportado, y sin error',
+    upd && upd.soportado === false && !upd.error, JSON.stringify(upd));
+  ok('y la caja lo explica en castellano',
+    (await js(`document.getElementById('caja-update').textContent`)).includes('app instalada'));
+
+  // De vuelta a Buscar: lo que sigue necesita el campo de búsqueda.
+  await click('[data-view="buscar"]');
+  await sleep(700);
+
   /* ── 4. El flujo real, de punta a punta ────────────────────────────────────
      Buscar → abrir la ficha → aplicar un descuento y verificar la aritmética
      en la tabla pintada. Esto SÍ sale a internet, y por eso se saltea solo

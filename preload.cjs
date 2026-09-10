@@ -78,4 +78,24 @@ contextBridge.exposeInMainWorld('onyx', {
     estado: () => call('cache:estado'),
     vaciar: () => call('cache:vaciar'),
   },
+
+  /* ── Actualizaciones ──────────────────────────────────────────────────────
+     Buscar, descargar e instalar son tres pasos separados a propósito: bajar
+     ~90 MB o reiniciar la app son cosas que decide el usuario, no la app.
+
+     `on` entrega el estado completo en cada cambio (no un diff), así la vista
+     se dibuja con lo último que llegó sin llevar cuenta de nada. Devuelve la
+     función para desuscribirse: sin eso, cada vez que se monta Ajustes queda
+     un listener más escuchando. */
+  update: {
+    estado: () => call('update:estado'),
+    buscar: () => call('update:buscar'),
+    descargar: () => call('update:descargar'),
+    instalar: () => call('update:instalar'),
+    on: (cb) => {
+      const handler = (_e, estado) => cb(estado);
+      ipcRenderer.on('update:estado', handler);
+      return () => ipcRenderer.off('update:estado', handler);
+    },
+  },
 });

@@ -137,6 +137,38 @@ propósito: la de la UI está hecha para 16px y a 256 se lee como una antena.
 
 ---
 
+## Actualizaciones
+
+La app mira los *releases* de este repo. El chequeo es automático a los cinco
+segundos de abrirla; **descargar e instalar no**, y eso es a propósito:
+
+- `autoDownload` viene en `true` de fábrica, o sea bajar ~90 MB apenas abrís la
+  app, sin avisar y estés donde estés. Acá se avisa y baja cuando lo pedís.
+- `autoInstallOnAppQuit` también viene en `true`: la app se actualizaría sola al
+  cerrarla y volvería a abrirse siendo otra versión sin que nadie lo decidiera.
+  Con precios de por medio, que la herramienta cambie sin aviso no va.
+
+Los tres pasos están en **Ajustes → Actualizaciones**, y el estado completo
+viaja al renderer en cada cambio (`update:estado`) en vez de mandar diferencias:
+así la vista se dibuja con lo último que llegó y no tiene que reconstruir nada
+si se pierde un aviso.
+
+Publicar una versión nueva:
+
+```
+npm version patch          # o minor / major
+npm run dist              # compila el instalador
+npm run publicar          # lo sube como release de GitHub
+```
+
+`GH_TOKEN` tiene que estar en el entorno para publicar (`gh auth token` lo da).
+
+**Sin firma de código, `verifyUpdateCodeSignature` va en `false`.** electron-
+updater valida por defecto que el instalador descargado esté firmado por el
+mismo editor; sin certificado, rechazaría su propia actualización.
+
+---
+
 ## Los datos
 
 Archivos JSON legibles, uno por cosa: se abren con un editor, se leen y se

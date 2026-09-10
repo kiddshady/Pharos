@@ -13,7 +13,8 @@
     "smoke": "electron test/renderer.test.cjs",
     "icono": "electron tools/icono.cjs",
     "dist": "electron-builder --win",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "publicar": "electron-builder --win --publish always"
   },
   "devDependencies": {
     "electron": "40.10.2",
@@ -42,7 +43,8 @@
         }
       ],
       "icon": "build/icon.png",
-      "artifactName": "${productName}-${version}-instalador.${ext}"
+      "artifactName": "${productName}-${version}-instalador.${ext}",
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
@@ -55,6 +57,16 @@
         "es_ES"
       ],
       "deleteAppDataOnUninstall": false
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kiddshady",
+        "repo": "Pharos"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }
