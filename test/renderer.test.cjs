@@ -80,6 +80,7 @@ app.whenReady().then(async () => {
     settings: await js(`window.onyx.settings.get()`),
     historial: await js(`window.onyx.doc.read('historial', [])`),
     favoritos: await js(`window.onyx.col('favoritos').list().then((l) => l.map((f) => f.id))`),
+    carrito: await js(`window.onyx.doc.read('carrito', { items: [] })`),
   };
 
   console.log('\n1. Arranque');
@@ -176,8 +177,9 @@ app.whenReady().then(async () => {
     await sleep(700);
 
     const columnas = await js(`document.querySelectorAll('.ox-table thead th').length`);
+    // Presentación · Lista · Con % · Ahorro · Vigente · (carrito)
     ok('al aplicar el descuento aparecen las columnas de con-descuento y ahorro',
-      columnas === 5, `columnas=${columnas}`);
+      columnas === 6, `columnas=${columnas}`);
 
     const calc = await js(`(() => {
       const tr = document.querySelector('.ox-table .ox-tr');
@@ -227,8 +229,8 @@ app.whenReady().then(async () => {
     const apagado = await js(`window.onyx.settings.get().then((s) => s.descuento)`);
     ok('apagarlo conserva el porcentaje',
       apagado && apagado.activo === false && apagado.porcentaje === 20, JSON.stringify(apagado));
-    ok('y la tabla vuelve a tres columnas',
-      (await js(`document.querySelectorAll('.ox-table thead th').length`)) === 3);
+    ok('y la tabla vuelve a tres columnas (más la del carrito)',
+      (await js(`document.querySelectorAll('.ox-table thead th').length`)) === 4);
 
     // El favorito, por la UI: la estrella no puede abrir el producto de paso.
     await click('[data-view="buscar"]');
@@ -239,6 +241,95 @@ app.whenReady().then(async () => {
     ok('la estrella guarda en favoritos', favs > 0, `favoritos=${favs}`);
     ok('y la estrella no navega al producto',
       (await js(`!!document.getElementById('campo')`)), 'se fue de la vista Buscar');
+
+    /* ── 4-ter. El carrito ──────────────────────────────────────────────────
+       Agregar desde la ficha, y en el carrito decidir por fila: PAMI o
+       particular, descuento sí o no, cantidad. Todo se mide sobre lo que se
+       VE en la tabla, contra la foto que quedó en disco. */
+    console.log('\n4-ter. El carrito');
+    const num = (t) => Number(String(t).replace(/[^0-9,]/g, '').replace(',', '.'));
+    await js(`window.onyx.doc.write('carrito', { items: [] })`);
+    await click('.ox-listitem');
+    await sleep(3200);
+    ok('la ficha tiene el botón de carrito en cada presentación',
+      (await js(`document.querySelectorAll('[data-carrito]').length`)) > 0);
+
+    await click('[data-carrito="0"]');
+    await sleep(900);
+    let carro = await js(`window.onyx.doc.read('carrito', { items: [] })`);
+    ok('agregar guarda un ítem con la foto de su precio',
+      carro.items.length === 1 && carro.items[0].precio > 0 && carro.items[0].cantidad === 1
+        && carro.items[0].consultado > 0, JSON.stringify(carro.items[0]));
+    ok('el rail cuenta el ítem',
+      (await js(`document.querySelector('[data-view="carrito"] .ox-navitem__count').textContent`)) === '1');
+    ok('y el botón de la ficha queda marcado',
+      await js(`document.querySelector('[data-carrito="0"]').classList.contains('is-active')`));
+
+    await click('[data-carrito="0"]');
+    await sleep(900);
+    carro = await js(`window.onyx.doc.read('carrito', { items: [] })`);
+    ok('agregar la misma presentación suma cantidad, no fila',
+      carro.items.length === 1 && carro.items[0].cantidad === 2, JSON.stringify(carro.items.map((i) => i.cantidad)));
+    const item = carro.items[0];
+
+    await click('[data-view="carrito"]');
+    await sleep(800);
+    const leerFila = () => js(`(() => {
+      const tr = document.querySelector('tr[data-item]');
+      if (!tr) return null;
+      return { unit: tr.querySelector('[data-cell="unit"]').textContent.trim().split('lista')[0],
+               sub: tr.querySelector('[data-cell="sub"]').textContent,
+               total: document.querySelector('#carrito-totales .ox-stat__value').textContent,
+               cant: tr.querySelector('[data-cantidad] input').value };
+    })()`);
+    let fila = await leerFila();
+    ok('el carrito pinta la fila con su cantidad', fila && fila.cant === '2', JSON.stringify(fila));
+    ok('el unitario es el precio de lista (particular, sin descuento)',
+      fila && Math.abs(num(fila.unit) - item.precio) < 0.02, `${fila && fila.unit} vs ${item.precio}`);
+    ok('el subtotal es unitario × cantidad',
+      fila && Math.abs(num(fila.sub) - item.precio * 2) < 0.02, JSON.stringify(fila));
+    ok('y el total del carrito es ese subtotal',
+      fila && Math.abs(num(fila.total) - num(fila.sub)) < 0.02, JSON.stringify(fila));
+
+    // El descuento, por fila. El porcentaje vigente es el 20 que dejó la ficha.
+    await click('[data-desc]');
+    await sleep(500);
+    fila = await leerFila();
+    ok('el tilde aplica el 20% a esa fila',
+      fila && Math.abs(num(fila.unit) - item.precio * 0.8) < 0.02, `${fila && fila.unit} vs ${item.precio * 0.8}`);
+    ok('sin tocar el ajuste global (que sigue apagado)',
+      (await js(`window.onyx.settings.get().then((s) => s.descuento.activo)`)) === false);
+
+    if (item.pami != null) {
+      await click('[data-modo] [data-value="pami"]');
+      await sleep(500);
+      fila = await leerFila();
+      ok('por PAMI se cobra lo que paga el afiliado, con el 20%',
+        fila && Math.abs(num(fila.unit) - item.pami * 0.8) < 0.02, `${fila && fila.unit} vs ${item.pami * 0.8}`);
+    } else {
+      ok('sin cobertura PAMI la fila lo dice en vez de ofrecer el segmentado',
+        !(await js(`!!document.querySelector('[data-modo]')`)));
+    }
+
+    // La cantidad, con la flecha del stepper (pointerdown, no click).
+    await tap('[data-cantidad] [data-step="up"]');
+    await sleep(700);
+    fila = await leerFila();
+    ok('la flecha sube la cantidad a 3', fila && fila.cant === '3', JSON.stringify(fila));
+    ok('y el subtotal la sigue sin repintar la tabla',
+      fila && Math.abs(num(fila.sub) - num(fila.unit) * 3) < 0.05, JSON.stringify(fila));
+    carro = await js(`window.onyx.doc.read('carrito', { items: [] })`);
+    ok('todo lo decidido queda en disco',
+      carro.items[0].cantidad === 3 && carro.items[0].descuento === true
+        && (item.pami == null || carro.items[0].modo === 'pami'), JSON.stringify(carro.items[0]));
+    ok('la statusbar muestra el total',
+      (await js(`document.querySelector('#stat-carrito .ox-statusbar__value').textContent`)).includes('$'));
+
+    await click('[data-quitar]');
+    await sleep(900);
+    ok('quitar deja el carrito vacío, con su estado vacío',
+      (await js(`document.querySelectorAll('tr[data-item]').length`)) === 0
+        && (await js(`!!document.querySelector('.ox-empty')`)));
   }
 
   /* ── 4-bis. La paleta de comandos ──────────────────────────────────────────
@@ -674,6 +765,7 @@ app.whenReady().then(async () => {
   }
   await js(`window.onyx.settings.save(${JSON.stringify(antesSettings())})`);
   await js(`window.onyx.doc.write('historial', ${JSON.stringify(antesHist())})`);
+  await js(`window.onyx.doc.write('carrito', ${JSON.stringify(previo.carrito)})`);
   ok('el test no dejó huella en los datos',
     (await js(`window.onyx.col('favoritos').list().then((l) => l.length)`)) === previo.favoritos.length,
     `creados y borrados: ${creados.length}`);

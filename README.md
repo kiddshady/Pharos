@@ -38,6 +38,15 @@ comparar con y sin en dos clicks.
 **Favoritos e historial.** La estrella de cualquier producto lo deja a un
 click; las búsquedas quedan anotadas y se repiten tocándolas.
 
+**Carrito.** Para planificar la compra: el carrito al final de cada
+presentación la agrega, y en la vista Carrito cada fila decide lo suyo —cuántas,
+si va **por PAMI** (lo que paga el afiliado) o **particular** (precio de lista),
+y si lleva o no el descuento de la farmacia— y abajo está la cuenta: total a
+pagar, cuánto va por cada lado, cuánto saldría a precio de lista y cuánto te
+ahorrás. Cada ítem guarda una *foto* de su precio con la fecha en que se
+consultó, y la vista siempre dice de cuándo es la más vieja; *Actualizar
+precios* vuelve a consultar cada ficha, de a una y espaciada.
+
 **Queda en la bandeja.** Se consulta muchas veces al día y de a ratos, así que
 cerrar la ventana no mata la app: la esconde en la bandeja del sistema, con el
 caché caliente y la vista donde quedó, y volver es instantáneo. Se vuelve con
@@ -142,10 +151,11 @@ Firmarlo de verdad necesita un certificado de code signing pago.
 El ícono de la app no es el mismo dibujo que la marca de la titlebar, y es a
 propósito: la de la UI está hecha para 16px y a 256 se lee como una antena.
 `tools/icono.cjs` tiene la versión con detalle y explica por qué. El de la
-bandeja, en cambio, **sí** es la marca de la titlebar —ese es su tamaño— y va
-en un `.ico` con una entrada por escala de Windows (16/20/24/32 px), porque
-con un solo PNG el reescalado del sistema la deja borrosa. `npm test` verifica
-que el archivo esté y traiga esas cuatro.
+bandeja es **ese mismo dibujo** —baldosa, halo y faro—, rasterizado aparte
+para cada escala de Windows (16/20/24/32 px) en un `.ico`, con un piso de
+grosor de trazo para que a 16px no se haga barro; con un solo PNG el
+reescalado del sistema lo deja borroso. `npm test` verifica que el archivo
+esté y traiga esas cuatro entradas.
 
 ---
 
@@ -190,6 +200,7 @@ en `%APPDATA%\Pharos\data` (ver arriba). `PHAROS_DATA` manda sobre las dos.
 ```
 data/settings.json    descuento, vigencia del caché, último índice usado
 data/historial.json   las últimas búsquedas
+data/carrito.json     lo que se va a comprar, con la foto del precio de cada ítem
 data/favoritos/       un archivo por producto guardado
 data/cache/           una respuesta de alfabeta por archivo
 ```

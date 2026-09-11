@@ -426,7 +426,9 @@
   text-align: center;
   animation: ox-rise-in var(--ox-t-4) var(--ox-ease) both;
 }
-.ox-empty .ox-icon { width: 34px; height: 34px; color: var(--ox-text-4); stroke-width: 1; }
+/* Solo el ícono grande del estado vacío (hijo directo): un botón de acción
+   con ícono adentro se quedaba con estos 34px y salía un botón con lupa gigante. */
+.ox-empty > .ox-icon { width: 34px; height: 34px; color: var(--ox-text-4); stroke-width: 1; }
 .ox-empty__title { font-size: var(--ox-fs-15); font-weight: var(--ox-w-medium); color: var(--ox-text-2); }
 .ox-empty__text { font-size: var(--ox-fs-12); color: var(--ox-text-4); max-width: 320px; line-height: var(--ox-lh-loose); }
 

@@ -84,6 +84,9 @@
           <button class="ox-navitem" data-view="favoritos">
             <i data-icon="estrella"></i> Favoritos <span class="ox-navitem__count">0</span>
           </button>
+          <button class="ox-navitem" data-view="carrito">
+            <i data-icon="carrito"></i> Carrito <span class="ox-navitem__count">0</span>
+          </button>
           <button class="ox-navitem" data-view="historial">
             <i data-icon="clock"></i> Historial <span class="ox-navitem__count">0</span>
           </button>
@@ -107,8 +110,12 @@
   <!-- ── Statusbar ───────────────────────────────────────────────────────── -->
   <footer class="ox-statusbar">
     <div class="ox-statusbar__item" id="stat-descuento"
-         data-tip="El descuento se cambia en la ficha de cualquier producto" data-tip-side="top">
+         data-tip="El descuento se cambia en la ficha de cualquier producto o en el carrito" data-tip-side="top">
       <i data-icon="porcentaje"></i> <span class="ox-statusbar__value">sin descuento</span>
+    </div>
+    <div class="ox-statusbar__item" id="stat-carrito" data-goto="carrito"
+         data-tip="Lo que va a salir el carrito, con lo que cada fila decidió" data-tip-side="top">
+      <i data-icon="carrito"></i> <span class="ox-statusbar__value">carrito vacío</span>
     </div>
     <div class="ox-statusbar__item"
          data-tip="Los precios salen del Manual Farmacéutico" data-tip-side="top">

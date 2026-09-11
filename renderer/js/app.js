@@ -58,6 +58,11 @@ Icons.add({
   /* Salir: el símbolo de encendido. Cerrar la ventana no sale (queda en la
      bandeja), así que la paleta necesita un comando que sí lo haga. */
   salir: '<path d="M8 2.4v5.4"/><path d="M4.9 5.2a4.6 4.6 0 1 0 6.2 0"/>',
+
+  /* El carrito: manija, canasto y dos ruedas. El canasto es más ancho arriba
+     que abajo, que es lo que lo distingue de una caja con ruedas. */
+  carrito: '<path d="M2.2 2.8h1.7l1.5 7.4h7l1.5-5.1H4.4"/>'
+         + '<circle cx="6.6" cy="13" r="1.1"/><circle cx="11.3" cy="13" r="1.1"/>',
 });
 
 /* ══ Estado ══════════════════════════════════════════════════════════════════
@@ -71,6 +76,12 @@ const S = {
   settings: {},
   favoritos: [],
   historial: [],
+
+  /** Las presentaciones que se van a comprar, con la foto de su precio al
+      momento de agregarlas. Ver "El carrito" más abajo. */
+  carrito: [],
+  /** El refresco de precios del carrito en curso, si hay uno. */
+  refresco: null,
 
   /** La búsqueda vigente y, si se abrió una droga o un laboratorio, su
       expansión a productos. La vista muestra la expansión cuando existe. */
@@ -99,19 +110,24 @@ const S = {
 /* ══ Datos en disco ══════════════════════════════════════════════════════════ */
 
 const HISTORIAL = 'historial';
+const CARRITO = 'carrito';
 
 async function loadAll() {
-  const [info, settings, favs, hist] = await Promise.all([
+  const [info, settings, favs, hist, carro] = await Promise.all([
     api.info(),
     api.settings.get(),
     favoritos.list(),
     api.doc.read(HISTORIAL, []),
+    api.doc.read(CARRITO, { items: [] }),
   ]);
   S.info = info;
   S.settings = settings;
   S.favoritos = favs.sort((a, b) => (b.guardadoEn || 0) - (a.guardadoEn || 0));
   S.historial = Array.isArray(hist) ? hist : [];
+  S.carrito = Array.isArray(carro?.items) ? carro.items : [];
   S.favoritos.forEach(recordarRef);
+  // Los ítems del carrito también se abren con un click: necesitan su referencia.
+  S.carrito.forEach(recordarRef);
 }
 
 /** Guarda cómo volver a abrir un producto. */
@@ -184,6 +200,188 @@ async function guardarDescuento(patch) {
   const actual = S.settings.descuento || { activo: false, porcentaje: 0 };
   S.settings = await api.settings.save({ descuento: { ...actual, ...patch } });
   updateChrome();
+}
+
+/* ══ El carrito ══════════════════════════════════════════════════════════════
+   Planificar la compra: qué presentaciones, cuántas, y cuánto va a salir en el
+   mostrador. Cada ítem decide POR SU CUENTA dos cosas que en la ficha son
+   globales: si va por PAMI (paga el afiliado) o particular (precio de lista), y
+   si lleva el descuento de la farmacia. Porque así es la compra real: el
+   remedio del abuelo va por PAMI, el ibuprofeno particular, y el descuento se
+   aplica a unos y a otros no.
+
+   El porcentaje es el MISMO de la ficha (es el de la farmacia, no cambia según
+   dónde se mire); lo que es independiente es el prendido/apagado por ítem.
+
+   Cada ítem guarda una FOTO de su precio —lista, lo que paga PAMI, la fecha de
+   vigencia y cuándo se tomó— porque los precios cambian y un total armado con
+   números de hace dos semanas tiene que decirlo. "Actualizar precios" vuelve a
+   consultar cada ficha y renueva la foto. */
+
+function guardarCarrito() {
+  return api.doc.write(CARRITO, { items: S.carrito })
+    .catch((err) => Toast.error('No se pudo guardar el carrito', err.message));
+}
+
+/** Lo que paga el afiliado de PAMI por esta presentación, si el Manual lo lista. */
+const pamiDe = (p) => p?.coberturas?.find((c) => /\bPAMI\b/i.test(c.obra))?.paga ?? null;
+
+/** La foto del precio de una presentación, tal como la guarda el carrito.
+    `edad` es cuánto hacía que la ficha estaba en el caché: la foto se fecha
+    cuando se consultó de verdad, no cuando se apretó el botón. */
+const fotoDe = (p, edad = 0) => ({
+  precio: p.precio, pami: pamiDe(p), fecha: p.fecha || null, consultado: Date.now() - (edad || 0),
+});
+
+const enCarrito = (slug, presentacion) =>
+  S.carrito.find((i) => i.slug === slug && i.presentacion === presentacion);
+
+/** Agrega la presentación `indice` de la ficha abierta; si ya estaba, suma una. */
+async function agregarAlCarrito(indice) {
+  const f = S.ficha;
+  const p = f?.presentaciones?.[Number(indice)];
+  const ref = S.refs.get(Router.param);
+  if (!p || !ref) return;
+
+  const ya = enCarrito(ref.slug, p.descripcion);
+  if (ya) {
+    ya.cantidad = Math.min(99, ya.cantidad + 1);
+  } else {
+    S.carrito.push({
+      id: `${idDe(ref.slug)}-${Date.now().toString(36)}`,
+      slug: ref.slug, idL: ref.idL, patron: ref.patron,
+      nombre: f.nombre || ref.nombre, laboratorio: f.laboratorio || ref.laboratorio || null,
+      presentacion: p.descripcion,
+      ...fotoDe(p, f.deCache ? f.edad : 0),
+      cantidad: 1,
+      modo: 'particular',
+      // Arranca como esté la ficha: si el descuento está puesto, se asume que
+      // también corre en la compra. Después se decide fila por fila.
+      descuento: descuento().activo,
+      agregadoEn: Date.now(),
+    });
+  }
+  await guardarCarrito();
+  Toast.show({
+    title: ya ? `Ahora son ${ya.cantidad} en el carrito` : 'Agregado al carrito',
+    text: `${f.nombre} · ${p.descripcion}`,
+    icon: 'carrito',
+  });
+  updateChrome();
+  registerCommands();
+  if (Router.name === 'producto') pintarProducto();
+}
+
+async function quitarDelCarrito(id) {
+  const it = S.carrito.find((i) => i.id === id);
+  if (!it) return;
+  S.carrito = S.carrito.filter((i) => i.id !== id);
+  await guardarCarrito();
+  updateChrome();
+  registerCommands();
+  Toast.show({ title: 'Quitado del carrito', text: `${it.nombre} · ${it.presentacion}`, icon: 'carrito' });
+}
+
+/* Guardar en cada tecla del stepper sería una escritura por milisegundo de
+   aguante; se junta todo en una, un momento después de que paró. */
+let guardarCarritoTimer = null;
+function cambiarItem(id, patch) {
+  const it = S.carrito.find((i) => i.id === id);
+  if (!it) return;
+  Object.assign(it, patch);
+  clearTimeout(guardarCarritoTimer);
+  guardarCarritoTimer = setTimeout(guardarCarrito, 300);
+  actualizarFila(it);
+  pintarTotales();
+  updateChrome();
+}
+
+/** Lo que se paga por UNA unidad del ítem, con su modo y su descuento. */
+function unitario(it) {
+  const base = it.modo === 'pami' && it.pami != null ? it.pami : it.precio;
+  if (base == null) return null;
+  const { porcentaje } = descuento();
+  return it.descuento && porcentaje > 0 ? base * (1 - porcentaje / 100) : base;
+}
+
+/** Los totales del carrito. `lista` es cuánto saldría todo a precio de lista,
+    particular y sin descuento: el número contra el que se mide el ahorro. */
+function totalesCarrito() {
+  const t = { total: 0, lista: 0, particular: 0, pami: 0, unidades: 0, sinPrecio: 0 };
+  for (const it of S.carrito) {
+    const u = unitario(it);
+    const n = Number(it.cantidad) || 0;
+    t.unidades += n;
+    if (u == null) { t.sinPrecio += 1; continue; }
+    const sub = u * n;
+    t.total += sub;
+    t.lista += (it.precio ?? 0) * n;
+    if (it.modo === 'pami' && it.pami != null) t.pami += sub; else t.particular += sub;
+  }
+  t.ahorro = t.lista - t.total;
+  return t;
+}
+
+/** El precio más viejo del carrito: la fecha que hay que mirar antes de confiar. */
+function vigenciaCarrito() {
+  const fotos = S.carrito.map((i) => i.consultado).filter(Boolean);
+  return fotos.length ? Math.min(...fotos) : null;
+}
+
+/** Vuelve a consultar la ficha de cada producto del carrito y renueva las
+    fotos. Explícito, de a uno y espaciado, como el barrido de precios. */
+async function refrescarCarrito() {
+  if (S.refresco || !S.carrito.length) return;
+
+  const slugs = [...new Set(S.carrito.map((i) => i.slug))];
+  S.refresco = { hechos: 0, total: slugs.length, cortar: false, fallos: 0 };
+  pintarCarrito();
+
+  for (const slug of slugs) {
+    if (S.refresco.cortar) break;
+    const ref = S.refs.get(slug) || S.carrito.find((i) => i.slug === slug);
+    try {
+      const r = await api.af.ficha({ slug, idL: ref.idL, patron: ref.patron, forzar: true });
+      for (const it of S.carrito.filter((i) => i.slug === slug)) {
+        // La presentación se reconoce por su descripción: es lo único estable
+        // que tiene. Si el Manual la sacó, el ítem queda marcado, no borrado.
+        const p = r.datos.presentaciones.find((x) => x.descripcion === it.presentacion);
+        if (p) Object.assign(it, fotoDe(p, r.deCache ? r.edad : 0), { perdido: false });
+        else it.perdido = true;
+      }
+    } catch {
+      S.refresco.fallos += 1;
+    }
+    S.refresco.hechos += 1;
+    pintarCarrito();
+  }
+
+  const { cortar, fallos } = S.refresco;
+  S.refresco = null;
+  await guardarCarrito();
+  pintarCarrito();
+  updateChrome();
+  Toast.show({
+    title: cortar ? 'Actualización interrumpida' : 'Precios actualizados',
+    text: fallos ? `${plural(fallos, 'producto', 'productos')} no se pudo consultar.` : 'El total ya está con los precios de hoy.',
+    icon: fallos ? 'alert' : 'check',
+  });
+}
+
+async function vaciarCarrito() {
+  const ok = await Modal.confirm({
+    title: '¿Vaciar el carrito?',
+    sub: 'Se quitan todos los ítems. Los favoritos y el historial no se tocan.',
+    confirmLabel: 'Vaciar',
+    danger: true,
+  });
+  if (!ok) return;
+  S.carrito = [];
+  await guardarCarrito();
+  updateChrome();
+  registerCommands();
+  Router.refresh();
+  Toast.show({ title: 'Carrito vacío', icon: 'carrito' });
 }
 
 /* ══ Consultas ═══════════════════════════════════════════════════════════════
@@ -588,7 +786,7 @@ function pintarProducto() {
           <span class="ox-section__title">${plural(f.presentaciones.length, 'Presentación', 'Presentaciones')}</span>
         </div>
         ${f.presentaciones.length
-          ? presentacionesHTML(f.presentaciones)
+          ? presentacionesHTML(f.presentaciones, slug)
           : empty({ icon: 'info', title: 'Sin presentaciones', text: 'El Manual no lista precios para este producto.' })}
       </div>
     </div>`);
@@ -633,7 +831,7 @@ function descuentoHTML(d) {
     </div>`;
 }
 
-function presentacionesHTML(lista) {
+function presentacionesHTML(lista, slug) {
   const d = descuento();
 
   return `
@@ -644,11 +842,13 @@ function presentacionesHTML(lista) {
           <th class="ox-td--num">${d.activo ? 'Lista' : 'Precio'}</th>
           ${d.activo ? `<th class="ox-td--num">Con ${d.porcentaje}%</th><th class="ox-td--num">Ahorro</th>` : ''}
           <th class="ox-td--num">Vigente</th>
+          <th class="ox-td--tight"></th>
         </tr>
       </thead>
       <tbody>
-        ${lista.map((p) => {
+        ${lista.map((p, i) => {
           const c = conDescuento(p.precio);
+          const en = enCarrito(slug, p.descripcion);
           return `
             <tr class="ox-tr">
               <td>
@@ -660,6 +860,11 @@ function presentacionesHTML(lista) {
                 <td class="ox-td--num ox-num ox-copyable" style="font-weight:var(--ox-w-semi)">${esc(fmtPesos(c.final))}</td>
                 <td class="ox-td--num ox-num ox-dim2">−${esc(fmtPesos(c.ahorro))}</td>` : ''}
               <td class="ox-td--num ox-meta">${p.fecha ? esc(fechaCorta(p.fecha)) : '—'}</td>
+              <td class="ox-td--tight">
+                <button class="ox-iconbtn ox-flashable${en ? ' is-active' : ''}" data-carrito="${i}"
+                  data-tip="${en ? `En el carrito (×${en.cantidad}) · agregar otra` : 'Agregar al carrito'}">
+                  ${Icons.svg('carrito')}</button>
+              </td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -761,6 +966,263 @@ function viewHistorial() {
             </div>`).join('')}</div>`
         : empty({ icon: 'clock', title: 'Sin búsquedas todavía', text: 'Lo que busques va a quedar acá.' })
     }</div>`);
+}
+
+/* ══ Vista: Carrito ══════════════════════════════════════════════════════════
+   Una tabla donde cada fila decide lo suyo (cantidad, PAMI o particular,
+   descuento sí o no) y abajo la cuenta. Las filas se actualizan EN SU LUGAR,
+   nunca repintando la tabla: repintar mataría el stepper que el usuario está
+   aguantando y el viaje de la cápsula del segmentado. */
+
+function viewCarrito() {
+  pintarCarrito();
+}
+
+function pintarCarrito() {
+  if (Router.name !== 'carrito') return;
+  const n = S.carrito.length;
+
+  paint(head({
+    title: 'Carrito',
+    sub: 'Lo que vas a comprar, y cuánto va a salir en el mostrador',
+    actions: n ? `${refrescoHTML()}
+      <button class="ox-btn ox-btn--ghost ox-flashable" data-action="vaciar-carrito">
+        ${Icons.svg('trash')} Vaciar</button>` : '',
+  }) + `<div class="ox-scroll ox-grow">${n ? carritoHTML() : carritoVacioHTML()}</div>`);
+
+  wireCarrito();
+}
+
+function carritoVacioHTML() {
+  return empty({
+    icon: 'carrito',
+    title: 'El carrito está vacío',
+    text: 'En la ficha de un producto, el carrito al final de cada presentación la agrega acá. Después elegís cuántas, si va por PAMI o particular, y si lleva descuento.',
+    actions: `<button class="ox-btn ox-btn--secondary ox-flashable" data-goto="buscar">
+      ${Icons.svg('search')} Ir a buscar</button>`,
+  });
+}
+
+/** El control de "Actualizar precios": invita, informa o deja cortar. */
+function refrescoHTML() {
+  if (S.refresco) {
+    const pct = Math.round((S.refresco.hechos / S.refresco.total) * 100);
+    return `
+      <div class="ox-row" style="gap:10px;align-items:center">
+        <div class="ox-meter" style="--ox-pct:${pct};width:120px"><div class="ox-meter__fill"></div></div>
+        <span class="ox-meta ox-num">${S.refresco.hechos}/${S.refresco.total}</span>
+        <button class="ox-btn ox-btn--ghost ox-btn--sm ox-flashable" data-action="cortar-refresco">Cortar</button>
+      </div>`;
+  }
+  return `
+    <button class="ox-btn ox-btn--secondary ox-flashable" data-action="refrescar-carrito"
+      data-tip="Vuelve a consultar la ficha de cada producto, de a uno y espaciado">
+      ${Icons.svg('retry')} Actualizar precios</button>`;
+}
+
+function carritoHTML() {
+  const d = descuento();
+
+  return `
+    <div class="ox-card" style="margin-bottom:20px"><div class="ox-card__body">
+      <div class="ox-row" style="gap:16px;align-items:center;flex-wrap:wrap">
+        <span class="ox-label">${Icons.svg('porcentaje', 'ox-icon--sm')} Descuento de la farmacia</span>
+        <div class="ox-stepper" id="st-desc-carrito" style="width:110px">
+          <input class="ox-input ox-num" type="number" min="0" max="100" step="1"
+                 value="${d.porcentaje}" aria-label="Porcentaje de descuento">
+          <div class="ox-stepper__btns">
+            <button class="ox-stepper__btn" data-step="up" tabindex="-1"><i data-icon="chevronUp"></i></button>
+            <button class="ox-stepper__btn" data-step="down" tabindex="-1"><i data-icon="chevronDown"></i></button>
+          </div>
+        </div>
+        <span class="ox-meta">Corre en las filas con el tilde. Es el mismo porcentaje que en la ficha.</span>
+        <div class="ox-spacer"></div>
+        ${vigenciaHTML()}
+      </div>
+    </div></div>
+
+    <table class="ox-table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th class="ox-td--tight">Cantidad</th>
+          <th class="ox-td--tight">Va por</th>
+          <th class="ox-td--tight" style="text-align:center">Desc.</th>
+          <th class="ox-td--num">Unitario</th>
+          <th class="ox-td--num">Subtotal</th>
+          <th class="ox-td--num">Vigente</th>
+          <th class="ox-td--tight"></th>
+        </tr>
+      </thead>
+      <tbody>${S.carrito.map(filaCarrito).join('')}</tbody>
+    </table>
+
+    <div id="carrito-totales" style="margin-top:20px">${totalesHTML()}</div>`;
+}
+
+/** De cuándo son los precios con los que se está sumando. No se omite. */
+function vigenciaHTML() {
+  const viejo = vigenciaCarrito();
+  if (!viejo) return '';
+  return `<span class="ox-meta" data-tip="La foto más vieja del carrito. Actualizar precios las renueva todas.">
+    ${Icons.svg('clock', 'ox-icon--sm')} precios tomados ${esc(relTime(viejo))}</span>`;
+}
+
+function filaCarrito(it) {
+  const id = esc(it.id);
+  const tienePami = it.pami != null;
+
+  return `
+    <tr class="ox-tr" data-item="${id}">
+      <td>
+        <div class="ox-row" style="gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="ox-copyable" style="font-weight:var(--ox-w-medium);color:var(--ox-text)"
+                data-open="${esc(it.slug)}" data-tip="Abrir la ficha">${esc(it.nombre)}</span>
+          ${it.perdido ? `<span class="ox-chip ox-chip--danger">${Icons.svg('alert', 'ox-icon--sm')} ya no está en el Manual</span>` : ''}
+        </div>
+        <div class="ox-meta">${esc(it.presentacion)}${it.laboratorio ? ` · ${esc(it.laboratorio)}` : ''}</div>
+      </td>
+      <td class="ox-td--tight">
+        <div class="ox-stepper" data-cantidad="${id}" style="width:72px">
+          <input class="ox-input ox-num" type="number" min="1" max="99" step="1"
+                 value="${Number(it.cantidad) || 1}" aria-label="Cantidad">
+          <div class="ox-stepper__btns">
+            <button class="ox-stepper__btn" data-step="up" tabindex="-1"><i data-icon="chevronUp"></i></button>
+            <button class="ox-stepper__btn" data-step="down" tabindex="-1"><i data-icon="chevronDown"></i></button>
+          </div>
+        </div>
+      </td>
+      <td class="ox-td--tight">
+        ${tienePami ? `
+          <div class="ox-segmented" data-modo="${id}">
+            <button class="ox-segmented__opt${it.modo !== 'pami' ? ' is-active' : ''}" data-value="particular">Particular</button>
+            <button class="ox-segmented__opt${it.modo === 'pami' ? ' is-active' : ''}" data-value="pami">PAMI</button>
+          </div>`
+        : `<span class="ox-meta" data-tip="El Manual no lista cobertura PAMI para esta presentación">Particular</span>`}
+      </td>
+      <td class="ox-td--tight" style="text-align:center">
+        <button class="ox-check${it.descuento ? ' is-on' : ''}" data-desc="${id}" aria-label="Aplicar descuento"
+          data-tip="${it.descuento ? 'Con descuento · click para sacarlo' : 'Sin descuento · click para aplicarlo'}">
+          ${Icons.svg('check')}</button>
+      </td>
+      <td class="ox-td--num" data-cell="unit">${unitarioHTML(it)}</td>
+      <td class="ox-td--num ox-num ox-copyable" data-cell="sub"
+          style="font-weight:var(--ox-w-semi);color:var(--ox-text)">${subtotalHTML(it)}</td>
+      <td class="ox-td--num ox-meta">${it.fecha ? esc(fechaCorta(it.fecha)) : '—'}</td>
+      <td class="ox-td--tight">
+        <div class="ox-rowactions">
+          <button class="ox-iconbtn ox-flashable" data-quitar="${id}" data-tip="Quitar del carrito">${Icons.svg('close')}</button>
+        </div>
+      </td>
+    </tr>`;
+}
+
+/** El precio por unidad y, cuando no es el de lista, el de lista debajo para
+    que se vea de dónde salió. */
+function unitarioHTML(it) {
+  const u = unitario(it);
+  if (u == null) return '<span class="ox-meta">sin precio</span>';
+  const distintoDeLista = it.precio != null && Math.abs(u - it.precio) > 0.005;
+  return `
+    <div class="ox-col" style="gap:2px;align-items:flex-end">
+      <span class="ox-num ox-copyable">${esc(fmtPesos(u))}</span>
+      ${distintoDeLista ? `<span class="ox-meta ox-num">lista ${esc(fmtPesos(it.precio))}</span>` : ''}
+    </div>`;
+}
+
+function subtotalHTML(it) {
+  const u = unitario(it);
+  return u == null ? '—' : esc(fmtPesos(u * (Number(it.cantidad) || 0)));
+}
+
+function totalesHTML() {
+  const t = totalesCarrito();
+  const mixto = t.pami > 0 && t.particular > 0;
+
+  return `
+    <div class="ox-card"><div class="ox-card__body">
+      <div class="ox-row" style="gap:36px;align-items:flex-end;flex-wrap:wrap">
+        <div class="ox-stat">
+          <span class="ox-stat__value ox-copyable" style="font-size:var(--ox-fs-26)">${esc(fmtPesos(t.total))}</span>
+          <span class="ox-stat__label">Total a pagar</span>
+        </div>
+        ${mixto ? `
+          <div class="ox-stat">
+            <span class="ox-stat__value ox-copyable">${esc(fmtPesos(t.particular))}</span>
+            <span class="ox-stat__label">Particular</span>
+          </div>
+          <div class="ox-stat">
+            <span class="ox-stat__value ox-copyable">${esc(fmtPesos(t.pami))}</span>
+            <span class="ox-stat__label">Por PAMI</span>
+          </div>` : ''}
+        <div class="ox-stat">
+          <span class="ox-stat__value ox-dim">${esc(fmtPesos(t.lista))}</span>
+          <span class="ox-stat__label">A precio de lista</span>
+        </div>
+        <div class="ox-stat">
+          <span class="ox-stat__value ox-copyable">${esc(fmtPesos(t.ahorro))}</span>
+          <span class="ox-stat__label">Te ahorrás</span>
+        </div>
+        <div class="ox-spacer"></div>
+        <span class="ox-meta">${plural(t.unidades, 'unidad', 'unidades')} en ${plural(S.carrito.length, 'ítem', 'ítems')}${
+          t.sinPrecio ? ` · ${t.sinPrecio} sin precio` : ''}</span>
+      </div>
+    </div></div>`;
+}
+
+/** Repinta las celdas de una fila que dependen de cantidad, modo o descuento. */
+function actualizarFila(it) {
+  const tr = document.querySelector(`tr[data-item="${it.id}"]`);
+  if (!tr) return;
+  tr.querySelector('[data-cell="unit"]').innerHTML = unitarioHTML(it);
+  tr.querySelector('[data-cell="sub"]').innerHTML = subtotalHTML(it);
+}
+
+function pintarTotales() {
+  const caja = document.getElementById('carrito-totales');
+  if (!caja) return;
+  caja.innerHTML = totalesHTML();
+  Icons.mount(caja);
+}
+
+/** Todos los listeners van sobre nodos que mueren con el repintado. */
+function wireCarrito() {
+  const acotar = (v, min, max) => Math.min(max, Math.max(min, Math.round(Number(v)) || min));
+
+  /* Cambio del porcentaje: toca el ajuste compartido con la ficha y refresca
+     todas las filas, porque el unitario de cada una depende de él. `change`
+     y no el callback del stepper: así también cuenta lo que se escribe a mano. */
+  document.getElementById('st-desc-carrito')?.addEventListener('change', async (e) => {
+    await guardarDescuento({ porcentaje: acotar(e.target.value, 0, 100) });
+    S.carrito.forEach(actualizarFila);
+    pintarTotales();
+  });
+  const stDesc = document.getElementById('st-desc-carrito');
+  if (stDesc) bindStepper(stDesc);
+
+  document.querySelectorAll('[data-cantidad]').forEach((el) => {
+    bindStepper(el);
+    el.addEventListener('change', (e) => {
+      const n = acotar(e.target.value, 1, 99);
+      e.target.value = n;
+      cambiarItem(el.dataset.cantidad, { cantidad: n });
+    });
+  });
+
+  document.querySelectorAll('[data-modo]').forEach((el) => {
+    bindSwitcher(el, (valor) => cambiarItem(el.dataset.modo, { modo: valor }));
+  });
+
+  document.querySelectorAll('[data-desc]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const it = S.carrito.find((i) => i.id === b.dataset.desc);
+      if (!it) return;
+      const on = !it.descuento;
+      b.classList.toggle('is-on', on);
+      b.dataset.tip = on ? 'Con descuento · click para sacarlo' : 'Sin descuento · click para aplicarlo';
+      cambiarItem(it.id, { descuento: on });
+    });
+  });
 }
 
 /* ══ Actualizaciones ═════════════════════════════════════════════════════════
@@ -980,6 +1442,7 @@ Router.define({
   buscar: { view: viewBuscar },
   producto: { view: viewProducto, nav: 'buscar' },
   favoritos: { view: viewFavoritos },
+  carrito: { view: viewCarrito },
   historial: { view: viewHistorial },
   ajustes: { view: viewAjustes },
   piezas: { view: viewPiezas },
@@ -1014,6 +1477,15 @@ function wireShell() {
     if (fav) {
       e.stopPropagation();   // la estrella vive dentro de una fila que abre el producto
       toggleFavorito(fav.dataset.fav).then(() => Router.refresh());
+      return;
+    }
+
+    const alCarro = e.target.closest('[data-carrito]');
+    if (alCarro) { agregarAlCarrito(alCarro.dataset.carrito); return; }
+
+    const quitar = e.target.closest('[data-quitar]');
+    if (quitar) {
+      quitarDelCarrito(quitar.dataset.quitar).then(() => Router.refresh());
       return;
     }
 
@@ -1070,6 +1542,9 @@ function acciones(a) {
   if (a === 'reintentar') abrirProducto(Router.param, { forzar: true });
   if (a === 'borrar-historial') borrarHistorial();
   if (a === 'vaciar-cache') vaciarCache();
+  if (a === 'vaciar-carrito') vaciarCarrito();
+  if (a === 'refrescar-carrito') refrescarCarrito();
+  if (a === 'cortar-refresco' && S.refresco) S.refresco.cortar = true;
   if (a.endsWith('-update')) accionUpdate(a);
 }
 
@@ -1110,6 +1585,16 @@ function updateChrome() {
   const ch = document.querySelector('[data-view="historial"] .ox-navitem__count');
   if (ch) ch.textContent = S.historial.length;
 
+  const cc = document.querySelector('[data-view="carrito"] .ox-navitem__count');
+  if (cc) cc.textContent = S.carrito.length;
+
+  // El total del carrito siempre a la vista: es el número por el que existe.
+  const sc = document.querySelector('#stat-carrito .ox-statusbar__value');
+  if (sc) {
+    const t = totalesCarrito();
+    sc.textContent = S.carrito.length ? `${fmtPesos(t.total)} · ${plural(t.unidades, 'unidad', 'unidades')}` : 'carrito vacío';
+  }
+
   const d = descuento();
   const valor = document.querySelector('#stat-descuento .ox-statusbar__value');
   if (valor) valor.textContent = d.activo ? `−${d.porcentaje}%` : 'sin descuento';
@@ -1135,6 +1620,11 @@ function registerCommands() {
   Palette.register([
     { id: 'nav-buscar', group: 'Ir a', icon: 'search', label: 'Buscar', run: () => Router.go('buscar') },
     { id: 'nav-fav', group: 'Ir a', icon: 'estrella', label: 'Favoritos', run: () => Router.go('favoritos') },
+    {
+      id: 'nav-carrito', group: 'Ir a', icon: 'carrito', label: 'Carrito',
+      hint: S.carrito.length ? `${plural(S.carrito.length, 'ítem', 'ítems')} · ${fmtPesos(totalesCarrito().total)}` : 'vacío',
+      run: () => Router.go('carrito'),
+    },
     { id: 'nav-hist', group: 'Ir a', icon: 'clock', label: 'Historial', run: () => Router.go('historial') },
     { id: 'nav-ajustes', group: 'Ir a', icon: 'settings', label: 'Ajustes', run: () => Router.go('ajustes') },
     { id: 'nav-piezas', group: 'Ir a', icon: 'layers', label: 'Piezas', hint: 'sistema visual', run: () => Router.go('piezas') },
@@ -1147,6 +1637,10 @@ function registerCommands() {
       hint: 'cerrar la ventana la deja en la bandeja',
       run: () => api?.quit(),
     },
+    ...(S.carrito.length ? [{
+      id: 'vaciar-carrito', group: 'Carrito', icon: 'trash', label: 'Vaciar el carrito',
+      run: () => vaciarCarrito(),
+    }] : []),
     {
       id: 'desc-toggle', group: 'Descuento', icon: 'porcentaje',
       label: d.activo ? `Apagar el descuento (${d.porcentaje}%)` : 'Aplicar el descuento',

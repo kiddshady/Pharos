@@ -23,14 +23,19 @@
    1.5 de una grilla de 16 hasta 512 da un trazo de 30px que cierra todos los
    huecos del dibujo.
 
-   ── Y por qué el de la bandeja es OTRO archivo ──────────────────────────────
-   La bandeja vive en 16px: ahí va la marca de la titlebar, que es la versión
-   hecha para ese tamaño, sin fondo (un cuadrado oscuro sobre la barra de
-   tareas oscura desaparece) y en ámbar, que se ve tanto sobre barra oscura
-   como clara. Va en .ico y no en .png porque Windows elige la entrada según
-   la escala del monitor: un solo PNG de 32 lo reescala él, y a 16 queda
-   borroso. Electron carga el .ico con LoadImage al tamaño que pide la
-   bandeja, así que cada escala recibe su dibujo rasterizado a medida.
+   ── La bandeja lleva el MISMO dibujo, no la marca chica ─────────────────────
+   La bandeja del sistema convive con el ícono de la taskbar, y tienen que ser
+   el mismo objeto: baldosa oscura, halo y el faro con su techo. Lo único que
+   cambia por tamaño es el grosor del trazo: escalado tal cual, a 16px queda en
+   0,65px y se convierte en barro, así que se le pone un piso físico (PISO_PX)
+   y el trazo crece en unidades de grilla lo que haga falta para llegar. Es lo
+   que hace un set serio con un mismo dibujo en varios tamaños: hinting a
+   mano. De 32px para arriba el trazo original ya supera el piso y no se toca.
+
+   Va en .ico y no en .png porque Windows elige la entrada según la escala del
+   monitor: un solo PNG de 32 lo reescala él, y a 16 queda borroso. Electron
+   carga el .ico con LoadImage al tamaño que pide la bandeja, así que cada
+   escala recibe su dibujo rasterizado a medida.
 
        node tools/icono.cjs        (necesita Electron: usa su canvas)
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -55,20 +60,18 @@ const LUZ = 'M5.6 3.2 3.4 2.1M10.4 3.2l2.2-1.1M4.9 5.5 2.4 5.1M11.1 5.5l2.5-.4';
 const GROSOR = 0.95;   // en unidades de la grilla de 16
 const ESCALA = 0.68;   // cuánto del lienzo ocupa la grilla
 
-/* La marca de la titlebar, tal cual está en index.html e icons.js (`faro`).
-   Si cambia ahí, cambia acá: la bandeja tiene que ser el mismo dibujo. */
-const MARCA_TORRE = 'M6.5 13.7 7.1 6.7h1.8l.6 7zM6.7 6.7V4.5h2.6v2.2M4.6 13.7h6.8';
-const MARCA_LUZ = 'M5.2 3.4 3 2.3M10.8 3.4 13 2.3';
+/* El trazo, en píxeles reales, por debajo del cual el faro deja de leerse. */
+const PISO_PX = 1.2;
 const TAMANOS_BANDEJA = [16, 20, 24, 32, 40, 48, 64];
 
-app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 640, height: 640, show: false });
-  await win.loadURL(`data:text/html,<canvas id="c" width="${LADO}" height="${LADO}"></canvas>`);
-  await new Promise((r) => setTimeout(r, 300));
-
-  const dataURL = await win.webContents.executeJavaScript(`(() => {
-    const S = ${LADO};
-    const c = document.getElementById('c');
+/* El dibujo, UNA sola vez, como fuente JS que corre adentro del renderer.
+   Los dos artefactos salen de acá: cambiar la baldosa o el faro en un solo
+   lugar es lo que garantiza que la bandeja y la taskbar sigan siendo el
+   mismo objeto. `S` es el lado en píxeles; `grosor` va en unidades de grilla. */
+const PINTAR = `
+  function pintar(S, grosor) {
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
     const ctx = c.getContext('2d');
 
     /* Fondo con las esquinas de Windows 11. Quedan TRANSPARENTES, no blancas:
@@ -94,7 +97,7 @@ app.whenReady().then(async () => {
     const esc = (S / 16) * ${ESCALA};
     ctx.translate((S - 16 * esc) / 2, (S - 16 * esc) / 2);
     ctx.scale(esc, esc);
-    ctx.lineWidth = ${GROSOR};
+    ctx.lineWidth = grosor;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = ${JSON.stringify(AMBAR)};
@@ -104,39 +107,34 @@ app.whenReady().then(async () => {
     ctx.globalAlpha = 0.5;                       // la luz, más tenue que la torre
     ctx.stroke(new Path2D(${JSON.stringify(LUZ)}));
 
-    return c.toDataURL('image/png');
-  })()`);
+    return c.toDataURL('image/png').split(',')[1];
+  }`;
+
+/** El grosor para un lado dado: el original, salvo que quede por debajo del
+    piso físico — ahí se engorda justo lo necesario, en unidades de grilla. */
+function grosorPara(S) {
+  const esc = (S / 16) * ESCALA;
+  return Math.max(GROSOR, PISO_PX / esc);
+}
+
+app.whenReady().then(async () => {
+  const win = new BrowserWindow({ width: 640, height: 640, show: false });
+  await win.loadURL('data:text/html,<body></body>');
+  await new Promise((r) => setTimeout(r, 300));
+
+  const png = (S) => win.webContents.executeJavaScript(`(() => { ${PINTAR}; return pintar(${S}, ${grosorPara(S)}); })()`);
 
   const dir = path.join(RAIZ, 'build');
   fs.mkdirSync(dir, { recursive: true });
   const destino = path.join(dir, 'icon.png');
-  fs.writeFileSync(destino, Buffer.from(dataURL.split(',')[1], 'base64'));
+  fs.writeFileSync(destino, Buffer.from(await png(LADO), 'base64'));
   console.log(`  icono → ${destino} (${Math.round(fs.statSync(destino).size / 1024)} kB)`);
 
   /* ── La bandeja ──────────────────────────────────────────────────────────
      Cada tamaño se rasteriza aparte desde el vector, nunca escalando otro:
-     a 16px un trazo de 1.5 son píxeles contados y el reescalado los embarra.
-     El trazo es el del set base (1.5 sobre la grilla de 16) porque ESTE sí es
-     el tamaño para el que la marca fue dibujada. La luz va más presente que
-     en la titlebar (.34): a 16px, con .34 desaparece y queda solo la torre. */
-  const pngs = await win.webContents.executeJavaScript(`(() => {
-    const out = {};
-    for (const size of ${JSON.stringify(TAMANOS_BANDEJA)}) {
-      const c = document.createElement('canvas');
-      c.width = c.height = size;
-      const ctx = c.getContext('2d');
-      ctx.scale(size / 16, size / 16);
-      ctx.lineWidth = 1.5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.strokeStyle = ${JSON.stringify(AMBAR)};
-      ctx.stroke(new Path2D(${JSON.stringify(MARCA_TORRE)}));
-      ctx.globalAlpha = 0.6;
-      ctx.stroke(new Path2D(${JSON.stringify(MARCA_LUZ)}));
-      out[size] = c.toDataURL('image/png').split(',')[1];
-    }
-    return out;
-  })()`);
+     a 16px un trazo son píxeles contados y el reescalado los embarra. */
+  const pngs = {};
+  for (const size of TAMANOS_BANDEJA) pngs[size] = await png(size);
 
   const ico = empaquetarIco(TAMANOS_BANDEJA.map((size) => ({ size, png: Buffer.from(pngs[size], 'base64') })));
   const destinoIco = path.join(dir, 'tray.ico');
