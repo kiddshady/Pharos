@@ -36,6 +36,19 @@ setTimeout(() => bail('timeout de 120s'), 120000);
 app.whenReady().then(async () => {
   require(path.join(ROOT, 'src', 'ipc.cjs')).register();
 
+  /* El carrito se siembra ANTES de arrancar la app, porque se lee una sola vez
+     al iniciar: escribirlo después deja a la app con lo que tenía en memoria.
+     Un ítem con PAMI inventado alcanza para probar la vista sin red, y lo que
+     había se guarda para devolverlo al final. */
+  const store = require(path.join(ROOT, 'src', 'store.cjs'));
+  const previoCarrito = await store.doc('carrito', { items: [] }).read();
+  const SEMBRADO = {
+    id: 'smoke-pami', slug: 'smoke-pami.html', idL: '0', patron: 'SMOKE', nombre: 'SMOKE 500', laboratorio: 'Prueba',
+    presentacion: 'comp.x 30', precio: 10000, pami: 3000, fecha: '2026-09-01', consultado: Date.now(),
+    cantidad: 1, modo: 'particular', descuento: false, agregadoEn: Date.now(),
+  };
+  await store.doc('carrito').write({ items: [SEMBRADO] });
+
   const win = new BrowserWindow({
     x: -20000, y: -20000, width: W, height: H,
     frame: false, show: false, paintWhenInitiallyHidden: true, backgroundColor: '#000',
@@ -80,8 +93,27 @@ app.whenReady().then(async () => {
     settings: await js(`window.onyx.settings.get()`),
     historial: await js(`window.onyx.doc.read('historial', [])`),
     favoritos: await js(`window.onyx.col('favoritos').list().then((l) => l.map((f) => f.id))`),
-    carrito: await js(`window.onyx.doc.read('carrito', { items: [] })`),
   };
+
+  /* La cápsula de un segmentado tiene que caer SOBRE su opción activa: se
+     compara el centro del texto (un Range, no la celda) con el centro de la
+     cápsula (el ::before). El bug que caza: en una celda de tabla las opciones
+     no medían lo mismo y la cápsula, calculada como ancho/n, caía 10px corrida
+     — el texto parecía descentrado. */
+  const capsula = (sel) => js(`(() => {
+    const seg = document.querySelector(${JSON.stringify(sel)});
+    if (!seg) return null;
+    const s = seg.getBoundingClientRect();
+    const cs = getComputedStyle(seg, '::before');
+    const x = new DOMMatrixReadOnly(cs.transform).m41 + parseFloat(cs.left);
+    const centroCapsula = x + parseFloat(cs.width) / 2;
+    const act = seg.querySelector('.ox-segmented__opt.is-active');
+    const r = document.createRange(); r.selectNodeContents(act);
+    const t = r.getBoundingClientRect();
+    const centroTexto = (t.left + t.right) / 2 - s.left;
+    const anchos = [...seg.querySelectorAll('.ox-segmented__opt')].map((o) => +o.getBoundingClientRect().width.toFixed(1));
+    return { txt: act.textContent.trim(), desfase: +Math.abs(centroCapsula - centroTexto).toFixed(2), anchos };
+  })()`);
 
   console.log('\n1. Arranque');
   ok('el splash se fue', !(await js(`!!document.getElementById('boot-splash')`)));
@@ -103,8 +135,12 @@ app.whenReady().then(async () => {
     (await js(`document.getElementById('campo').placeholder`)).includes('ibuprofeno'));
   ok('el índice elegido persiste en disco',
     (await js(`window.onyx.settings.get().then((s) => s.modo)`)) === 'droga');
+  let cap = await capsula('#seg-modo');
+  ok('la cápsula cae centrada sobre "Droga"', cap && cap.txt === 'Droga' && cap.desfase <= 1, JSON.stringify(cap));
   await click('#seg-modo [data-value="producto"]');
   await sleep(500);
+  cap = await capsula('#seg-modo');
+  ok('y vuelve centrada sobre "Producto"', cap && cap.txt === 'Producto' && cap.desfase <= 1, JSON.stringify(cap));
 
   console.log('\n3. Todas las vistas montan');
   for (const v of ['favoritos', 'historial', 'ajustes', 'buscar']) {
@@ -137,6 +173,31 @@ app.whenReady().then(async () => {
     upd && upd.soportado === false && !upd.error, JSON.stringify(upd));
   ok('y la caja lo explica en castellano',
     (await js(`document.getElementById('caja-update').textContent`)).includes('app instalada'));
+
+  /* ── 3-ter. El carrito, con el ítem sembrado ───────────────────────────────
+     Sin red: la fila sale del archivo. Se prueba lo que la ficha real no
+     garantiza (que haya PAMI) y la geometría del segmentado adentro de la
+     tabla, que es donde se rompía. */
+  console.log('\n3-ter. El carrito, con el ítem sembrado');
+  const num = (t) => Number(String(t).replace(/[^0-9,]/g, '').replace(',', '.'));
+  await click('[data-view="carrito"]');
+  await sleep(800);
+  ok('la fila sembrada está', (await js(`document.querySelectorAll('tr[data-item="smoke-pami"]').length`)) === 1);
+  ok('con su segmentado Particular/PAMI', await js(`!!document.querySelector('[data-modo="smoke-pami"]')`));
+  cap = await capsula('[data-modo="smoke-pami"]');
+  ok('las dos opciones miden lo mismo también en la tabla',
+    cap && cap.anchos.length === 2 && Math.abs(cap.anchos[0] - cap.anchos[1]) <= 0.5, JSON.stringify(cap));
+  ok('y la cápsula cae centrada sobre "Particular"', cap && cap.txt === 'Particular' && cap.desfase <= 1, JSON.stringify(cap));
+  await click('[data-modo="smoke-pami"] [data-value="pami"]');
+  await sleep(600);
+  cap = await capsula('[data-modo="smoke-pami"]');
+  ok('al pasar a PAMI la cápsula cae centrada sobre "PAMI"', cap && cap.txt === 'PAMI' && cap.desfase <= 1, JSON.stringify(cap));
+  const unitPami = await js(`document.querySelector('tr[data-item="smoke-pami"] [data-cell="unit"]').textContent.trim().split('lista')[0]`);
+  ok('por PAMI cobra lo que paga el afiliado (3000)', Math.abs(num(unitPami) - 3000) < 0.02, unitPami);
+  await click('[data-quitar="smoke-pami"]');
+  await sleep(900);
+  ok('quitar el sembrado deja el carrito vacío',
+    (await js(`document.querySelectorAll('tr[data-item]').length`)) === 0 && (await js(`!!document.querySelector('.ox-empty')`)));
 
   // De vuelta a Buscar: lo que sigue necesita el campo de búsqueda.
   await click('[data-view="buscar"]');
@@ -246,9 +307,7 @@ app.whenReady().then(async () => {
        Agregar desde la ficha, y en el carrito decidir por fila: PAMI o
        particular, descuento sí o no, cantidad. Todo se mide sobre lo que se
        VE en la tabla, contra la foto que quedó en disco. */
-    console.log('\n4-ter. El carrito');
-    const num = (t) => Number(String(t).replace(/[^0-9,]/g, '').replace(',', '.'));
-    await js(`window.onyx.doc.write('carrito', { items: [] })`);
+    console.log('\n4-ter. El carrito, desde la ficha real');
     await click('.ox-listitem');
     await sleep(3200);
     ok('la ficha tiene el botón de carrito en cada presentación',
@@ -765,7 +824,7 @@ app.whenReady().then(async () => {
   }
   await js(`window.onyx.settings.save(${JSON.stringify(antesSettings())})`);
   await js(`window.onyx.doc.write('historial', ${JSON.stringify(antesHist())})`);
-  await js(`window.onyx.doc.write('carrito', ${JSON.stringify(previo.carrito)})`);
+  await store.doc('carrito').write(previoCarrito);
   ok('el test no dejó huella en los datos',
     (await js(`window.onyx.col('favoritos').list().then((l) => l.length)`)) === previo.favoritos.length,
     `creados y borrados: ${creados.length}`);

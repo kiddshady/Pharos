@@ -256,6 +256,16 @@ Agregá `.ox-flashable` para el velo de luz al presionar. Se cablea solo con
 `.ox-tabs`: maneja el activo, hace viajar el indicador y reajusta al
 redimensionar.
 
+**La cápsula del segmentado copia la geometría real de la opción activa**
+(`--seg-x` / `--seg-w`, como el subrayado de los tabs), no `ancho / n`. Y el
+control lleva `width: max-content` para que las opciones midan lo mismo
+también adentro de una celda de tabla: el `1fr` reparte parejo solo con ancho
+indefinido, y una celda `.ox-td--tight` le da un ancho definido igual a su
+mínimo, sin espacio libre que repartir. Se descubrió en el carrito de Pharos:
+"Particular" salía de 71px y "PAMI" de 50, y la cápsula caía 10px corrida de su
+texto. El de humo mide el centro del texto contra el centro de la cápsula, en
+el flex del buscador y en la tabla.
+
 ### Un botón nuevo declara SU padding
 
 `base.css` pone `button { padding: 0 }`. No lo saques y no confíes en el padding

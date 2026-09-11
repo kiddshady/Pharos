@@ -280,13 +280,22 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .ox-check.is-on .ox-icon { stroke-dashoffset: 0; }
 
 /* ── Segmentado ───────────────────────────────────────────────────────────────
-   La cápsula seleccionada se DESLIZA entre opciones (--seg = índice activo).
-   Que viaje en vez de saltar es lo que lo hace sentir físico. */
+   La cápsula seleccionada se DESLIZA entre opciones: --seg-x y --seg-w son la
+   posición y el ancho REALES de la opción activa (los pone syncSegmented, en
+   motion.js). Que viaje en vez de saltar es lo que lo hace sentir físico.
+
+   `width: max-content` es lo que hace que las opciones midan lo mismo también
+   adentro de una celda de tabla. El `1fr` reparte parejo solo cuando el ancho
+   del control es indefinido (en un flex, por ejemplo); una celda con
+   `.ox-td--tight` le da un ancho definido igual a su mínimo y no queda espacio
+   libre que repartir: "Particular" salía de 71px y "PAMI" de 50, y la cápsula
+   —que asumía mitades iguales— caía 10px corrida de su texto. */
 .ox-segmented {
   position: relative;
   display: inline-grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
+  width: max-content;
   padding: 2px;
   border-radius: var(--ox-r-sm);
   background: var(--ox-sunken);
@@ -296,13 +305,13 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; marg
   content: '';
   position: absolute;
   top: 2px;
-  left: 2px;
+  left: 0;
   width: var(--seg-w, 0px);
   height: calc(100% - 4px);
   border-radius: var(--ox-r-xs);
   background: var(--ox-s3);
   box-shadow: var(--ox-e1);
-  transform: translateX(calc(var(--seg, 0) * var(--seg-w, 0px)));
+  transform: translateX(var(--seg-x, 2px));
   transition: transform var(--ox-t-3) var(--ox-ease), width var(--ox-t-3) var(--ox-ease);
 }
 .ox-segmented__opt {
