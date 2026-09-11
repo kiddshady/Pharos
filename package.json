@@ -1,7 +1,7 @@
 {
   "name": "pharos",
   "productName": "Pharos",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Precios de medicamentos del Manual Farmacéutico, sin la publicidad de por medio.",
   "main": "main.cjs",
   "author": "Fran",
