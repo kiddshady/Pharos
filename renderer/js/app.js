@@ -54,6 +54,10 @@ Icons.add({
   /* Laboratorio: un matraz. */
   matraz: '<path d="M6.4 1.9v4L2.6 12a1.2 1.2 0 0 0 1 1.9h8.8a1.2 1.2 0 0 0 1-1.9L9.6 5.9v-4"/>'
         + '<path d="M5.6 1.9h4.8M4.6 9h6.8"/>',
+
+  /* Salir: el símbolo de encendido. Cerrar la ventana no sale (queda en la
+     bandeja), así que la paleta necesita un comando que sí lo haga. */
+  salir: '<path d="M8 2.4v5.4"/><path d="M4.9 5.2a4.6 4.6 0 1 0 6.2 0"/>',
 });
 
 /* ══ Estado ══════════════════════════════════════════════════════════════════
@@ -1137,6 +1141,11 @@ function registerCommands() {
     {
       id: 'buscar-update', group: 'La app', icon: 'retry', label: 'Buscar actualizaciones',
       run: () => { Router.go('ajustes'); accionUpdate('buscar-update'); },
+    },
+    {
+      id: 'salir', group: 'La app', icon: 'salir', label: 'Salir de Pharos',
+      hint: 'cerrar la ventana la deja en la bandeja',
+      run: () => api?.quit(),
     },
     {
       id: 'desc-toggle', group: 'Descuento', icon: 'porcentaje',

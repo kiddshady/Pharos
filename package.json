@@ -31,7 +31,9 @@
       "main.cjs",
       "preload.cjs",
       "src/**/*",
-      "renderer/**/*"
+      "renderer/**/*",
+      "build/icon.png",
+      "build/tray.ico"
     ],
     "win": {
       "target": [

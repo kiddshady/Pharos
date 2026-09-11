@@ -98,5 +98,20 @@ const files = [path.join(ROOT, 'main.cjs'), path.join(ROOT, 'preload.cjs')];
 const sucios = files.filter((f) => /(--vc-|\.vc-|"vc-|'vc-)/.test(fs.readFileSync(f, 'utf8')));
 ok('sin restos de otro prefijo', sucios.length === 0, sucios.join(', '));
 
+console.log('\n6. El ícono de la bandeja está en el repo y trae las escalas de Windows');
+/* Lo genera `npm run icono` y viaja adentro del asar. Si falta, la app
+   instalada cae al ícono grande escalado; si le falta una entrada, Windows
+   reescala otra y a 16px queda borroso. Se lee el directorio del .ico a mano:
+   6 bytes de cabecera y 16 por entrada, con el lado en el primer byte. */
+const ico = path.join(ROOT, 'build', 'tray.ico');
+ok('build/tray.ico existe', fs.existsSync(ico), 'corré `npm run icono`');
+if (fs.existsSync(ico)) {
+  const b = fs.readFileSync(ico);
+  const esIco = b.length >= 6 && b.readUInt16LE(0) === 0 && b.readUInt16LE(2) === 1;
+  const lados = esIco ? Array.from({ length: b.readUInt16LE(4) }, (_, i) => b.readUInt8(6 + i * 16) || 256) : [];
+  ok('es un .ico', esIco);
+  ok('con 16, 20, 24 y 32 px (100/125/150/200 %)', [16, 20, 24, 32].every((s) => lados.includes(s)), lados.join('/'));
+}
+
 console.log(`\n═══ ${pass} ok · ${fail} fallas ═══`);
 process.exit(fail ? 1 : 0);

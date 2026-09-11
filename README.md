@@ -38,6 +38,14 @@ comparar con y sin en dos clicks.
 **Favoritos e historial.** La estrella de cualquier producto lo deja a un
 click; las búsquedas quedan anotadas y se repiten tocándolas.
 
+**Queda en la bandeja.** Se consulta muchas veces al día y de a ratos, así que
+cerrar la ventana no mata la app: la esconde en la bandeja del sistema, con el
+caché caliente y la vista donde quedó, y volver es instantáneo. Se vuelve con
+un click en el ícono, o abriendo Pharos de nuevo: es de **una sola instancia**,
+y el acceso directo trae la ventana que ya existe en vez de levantar otro
+proceso. Salir de verdad es una decisión explícita, desde el menú de la bandeja
+o con *Salir de Pharos* en la paleta (`Ctrl K`).
+
 ---
 
 ## Cómo funciona
@@ -113,7 +121,7 @@ dato y qué antigüedad tiene. Es el peor error que podría cometer esta app.
 ## Compilar el instalador
 
 ```
-npm run icono    # regenera build/icon.png (solo si cambió la marca o el acento)
+npm run icono    # regenera build/icon.png y build/tray.ico (solo si cambió la marca o el acento)
 npm run dist     # → dist/Pharos-<versión>-instalador.exe
 ```
 
@@ -133,7 +141,11 @@ Firmarlo de verdad necesita un certificado de code signing pago.
 
 El ícono de la app no es el mismo dibujo que la marca de la titlebar, y es a
 propósito: la de la UI está hecha para 16px y a 256 se lee como una antena.
-`tools/icono.cjs` tiene la versión con detalle y explica por qué.
+`tools/icono.cjs` tiene la versión con detalle y explica por qué. El de la
+bandeja, en cambio, **sí** es la marca de la titlebar —ese es su tamaño— y va
+en un `.ico` con una entrada por escala de Windows (16/20/24/32 px), porque
+con un solo PNG el reescalado del sistema la deja borrosa. `npm test` verifica
+que el archivo esté y traiga esas cuatro.
 
 ---
 

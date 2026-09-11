@@ -21,10 +21,13 @@ const call = async (channel, ...args) => {
 
 contextBridge.exposeInMainWorld('onyx', {
   info: () => call('app:info'),
+  /** Salir de verdad. `win.close` no sale: esconde la ventana en la bandeja. */
+  quit: () => ipcRenderer.send('app:quit'),
 
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),
     toggleMaximize: () => ipcRenderer.send('win:toggle-maximize'),
+    /** Con bandeja, "cerrar" es esconder: la app sigue corriendo atrás. */
     close: () => ipcRenderer.send('win:close'),
     isMaximized: () => ipcRenderer.invoke('win:is-maximized'),
     /** El renderer le pasa a la ventana su color base ya resuelto (ver app.js). */
