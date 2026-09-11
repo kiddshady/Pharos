@@ -14,7 +14,7 @@
     "icono": "electron tools/icono.cjs",
     "dist": "electron-builder --win",
     "pack": "electron-builder --dir",
-    "publicar": "electron-builder --win --publish always"
+    "publicar": "node tools/publicar.mjs"
   },
   "devDependencies": {
     "electron": "40.10.2",

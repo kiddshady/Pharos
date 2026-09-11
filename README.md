@@ -178,12 +178,28 @@ si se pierde un aviso.
 Publicar una versión nueva:
 
 ```
-npm version patch          # o minor / major
-npm run dist              # compila el instalador
-npm run publicar          # lo sube como release de GitHub
+npm version patch                        # o minor / major: commit + tag
+npm run publicar -- --notas notas.md     # tests, push, compila, sube, verifica y publica
 ```
 
-`GH_TOKEN` tiene que estar en el entorno para publicar (`gh auth token` lo da).
+`tools/publicar.mjs` hace todo el ritual y lo verifica: corre los tests, pushea
+la rama y el tag, **crea el release en GitHub antes de compilar** (como draft,
+con título y notas), corre electron-builder, comprueba que el `.exe`, el
+`.blockmap` y `latest.yml` hayan quedado en ese release con su tamaño y que el
+sha512 del instalador coincida con `latest.yml`, y recién ahí lo publica. Sin
+`--notas` (o con `--draft`) sube todo pero lo deja como draft: un release sin
+notas no sale. Necesita el CLI `gh` logueado, o `GH_TOKEN` en el entorno.
+
+**Por qué el release se crea antes y no lo crea electron-builder.**
+`electron-builder --publish always` a secas creaba DOS drafts por versión y
+repartía los archivos entre los dos (el `.blockmap` en uno, el `.exe` y
+`latest.yml` en el otro). Es una carrera adentro de app-builder-lib: su caché
+de publishers se consulta, se hace `await` y recién después se guarda, y el
+`.exe` y su `.blockmap` avisan que existen en el mismo tick. Cada publisher, al
+no encontrar release para el tag, crea el suyo. Con un draft ya creado para el
+tag, los dos lo encuentran y suben ahí. Dos trampas más de GitHub que el script
+esquiva: un PATCH a un draft sin `tag_name` le borra el tag pendiente, y el
+listado de releases tarda unos segundos en mostrar un draft recién creado.
 
 **Sin firma de código, `verifyUpdateCodeSignature` va en `false`.** electron-
 updater valida por defecto que el instalador descargado esté firmado por el
