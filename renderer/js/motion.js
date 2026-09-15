@@ -10,6 +10,114 @@ export function raf2(fn) {
   requestAnimationFrame(() => requestAnimationFrame(fn));
 }
 
+/* ── Cambios de contenido ───────────────────────────────────────────────────
+   Las transiciones CSS cubren estados que conservan el mismo nodo (hover,
+   switch, segmentado). Las vistas de una app real también reemplazan texto o
+   markup después de una consulta. Esos cambios necesitan una entrada breve:
+   si no, el dato nuevo aparece en un solo frame aunque el control que lo
+   produjo se haya movido con toda suavidad.
+
+   Se usa Web Animations y no una clase temporal porque dos actualizaciones
+   seguidas —un progreso, un stepper apretado— tienen que cancelar la anterior
+   limpiamente. Nunca se acumulan animaciones ni listeners. */
+
+const running = new WeakMap();
+const EASE = 'cubic-bezier(.16, 1, .3, 1)';
+
+const FRAMES = {
+  fade: [
+    { opacity: .22 },
+    { opacity: 1 },
+  ],
+  rise: [
+    { opacity: .18, transform: 'translateY(5px)' },
+    { opacity: 1, transform: 'translateY(0)' },
+  ],
+  glide: [
+    { opacity: 0, transform: 'translateX(-10px)' },
+    { opacity: 1, transform: 'translateX(0)' },
+  ],
+  tick: [
+    { opacity: .3, transform: 'translateY(2px)' },
+    { opacity: 1, transform: 'translateY(0)' },
+  ],
+};
+
+function reduceMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** Hace entrar un nodo ya actualizado, cancelando cualquier entrada anterior. */
+export function animateIn(el, { kind = 'fade', duration, delay = 0 } = {}) {
+  if (!el || reduceMotion() || typeof el.animate !== 'function') return null;
+  running.get(el)?.cancel();
+  const ms = duration ?? ({ glide: 420, rise: 280, tick: 220 }[kind] || 180);
+  const animation = el.animate(FRAMES[kind] || FRAMES.fade, {
+    duration: ms,
+    delay,
+    easing: EASE,
+    fill: 'both',
+  });
+  running.set(el, animation);
+  animation.finished.catch(() => {}).finally(() => {
+    if (running.get(el) === animation) {
+      running.delete(el);
+      // `fill:both` sirve durante el viaje; al terminar, el estilo base ya es
+      // idéntico al último frame. Cancelarla evita acumular efectos terminados.
+      animation.cancel();
+    }
+  });
+  return animation;
+}
+
+/** Reemplaza markup solo si cambió y materializa el resultado con suavidad. */
+export function replaceHTML(el, html, options) {
+  if (!el || el.innerHTML === html) return false;
+  el.innerHTML = html;
+  animateIn(el, options);
+  return true;
+}
+
+/** Actualiza una etiqueta sin hacer parpadear los valores que no cambiaron. */
+export function setText(el, value, options = { kind: 'tick' }) {
+  if (!el) return false;
+  const text = String(value ?? '');
+  if (el.textContent === text) return false;
+  el.textContent = text;
+  animateIn(el, options);
+  return true;
+}
+
+/**
+ * Salida para un nodo que va a dejar de existir. A diferencia de exit(), no
+ * exige que el elemento haya nacido con una clase ox-in-*.
+ */
+export function leave(el, { kind = 'rise', duration = 150, remove = false } = {}) {
+  if (!el) return Promise.resolve();
+  if (reduceMotion() || typeof el.animate !== 'function') {
+    if (remove) el.remove();
+    return Promise.resolve();
+  }
+  running.get(el)?.cancel();
+  const from = kind === 'glide'
+    ? { opacity: 1, transform: 'translateX(0)' }
+    : { opacity: 1, transform: 'translateY(0)' };
+  const to = kind === 'glide'
+    ? { opacity: 0, transform: 'translateX(7px)' }
+    : { opacity: 0, transform: 'translateY(4px)' };
+  const animation = el.animate([from, to], {
+    duration,
+    easing: 'cubic-bezier(.55, 0, 1, .45)',
+    fill: 'forwards',
+  });
+  running.set(el, animation);
+  return animation.finished.catch(() => {}).then(() => {
+    if (running.get(el) === animation) running.delete(el);
+    if (remove) el.remove();
+    animation.cancel();
+  });
+}
+
 /**
  * Saca un elemento del DOM DESPUÉS de su animación de salida.
  * Marca data-state="closing" (el CSS engancha ahí) y espera al animationend,

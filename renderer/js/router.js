@@ -72,15 +72,8 @@ export function go(name, param = null) {
   document.querySelectorAll('.ox-navitem').forEach((b) =>
     b.classList.toggle('is-active', b.dataset.view === navKey));
 
+  if (host) host.dataset.motionKind = 'glide';
   route.view(param);
-
-  // La transición de vista se reinicia a mano: sin el reflow intermedio el
-  // navegador no vuelve a disparar la animación al re-agregar la clase.
-  if (host) {
-    host.classList.remove('ox-view');
-    void host.offsetWidth;
-    host.classList.add('ox-view');
-  }
 
   listeners.forEach((fn) => fn({ ...current }, from));
   return true;
@@ -91,6 +84,7 @@ export function refresh() {
   const route = routes.get(current.name);
   if (!route) return;
   release();
+  if (host) host.dataset.motionKind = 'fade';
   route.view(current.param);
 }
 

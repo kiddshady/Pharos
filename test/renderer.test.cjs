@@ -188,7 +188,23 @@ app.whenReady().then(async () => {
   ok('las dos opciones miden lo mismo también en la tabla',
     cap && cap.anchos.length === 2 && Math.abs(cap.anchos[0] - cap.anchos[1]) <= 0.5, JSON.stringify(cap));
   ok('y la cápsula cae centrada sobre "Particular"', cap && cap.txt === 'Particular' && cap.desfase <= 1, JSON.stringify(cap));
-  await click('[data-modo="smoke-pami"] [data-value="pami"]');
+  /* No alcanza con mirar dónde terminó: el bug reportado era justamente que
+     llegaba al estado correcto, pero en un solo frame. Se toma la foto en el
+     MISMO task del click, mientras cápsula, precios y totales siguen viajando. */
+  const movimientoPami = await js(`(() => {
+    const seg = document.querySelector('[data-modo="smoke-pami"]');
+    const unit = document.querySelector('tr[data-item="smoke-pami"] [data-cell="unit"]');
+    const total = document.getElementById('carrito-totales');
+    seg.querySelector('[data-value="pami"]').click();
+    return {
+      capsula: seg.getAnimations({ subtree: true }).length,
+      precio: unit.getAnimations().length,
+      totales: total.getAnimations().length,
+    };
+  })()`);
+  ok('Particular → PAMI queda animándose, no cambia en un frame',
+    movimientoPami.capsula > 0 && movimientoPami.precio > 0 && movimientoPami.totales > 0,
+    JSON.stringify(movimientoPami));
   await sleep(600);
   cap = await capsula('[data-modo="smoke-pami"]');
   ok('al pasar a PAMI la cápsula cae centrada sobre "PAMI"', cap && cap.txt === 'PAMI' && cap.desfase <= 1, JSON.stringify(cap));

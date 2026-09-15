@@ -11,7 +11,10 @@ import { Icons } from './icons.js';
 import { Tooltip, Toast, Modal } from './overlays.js';
 import Palette from './palette.js';
 import Router from './router.js';
-import { initClickFlash, initScrollFades, raf2, bindSwitcher, bindStepper } from './motion.js';
+import {
+  initClickFlash, initScrollFades, leave, raf2,
+  bindSwitcher, bindStepper, replaceHTML, setText,
+} from './motion.js';
 import { esc, paint, head, empty, attempt, copy, colorToken, path } from './ui.js';
 import { fmtPesos, fmtBytes, relTime, plural } from './format.js';
 import { designHTML, wireDesign } from './design-view.js';
@@ -154,6 +157,11 @@ async function toggleFavorito(slug) {
   const id = idDe(slug);
 
   if (esFavorito(slug)) {
+    if (Router.name === 'favoritos') {
+      const fila = [...document.querySelectorAll('.ox-listitem')]
+        .find((el) => el.dataset.open === slug);
+      await leave(fila, { kind: 'glide', remove: true });
+    }
     await favoritos.remove(id);
     S.favoritos = S.favoritos.filter((f) => f.id !== id);
     Toast.show({ title: 'Quitado de favoritos', text: ref.nombre, icon: 'estrella' });
@@ -275,6 +283,9 @@ async function agregarAlCarrito(indice) {
 async function quitarDelCarrito(id) {
   const it = S.carrito.find((i) => i.id === id);
   if (!it) return;
+  if (Router.name === 'carrito') {
+    await leave(document.querySelector(`tr[data-item="${CSS.escape(id)}"]`), { kind: 'glide', remove: true });
+  }
   S.carrito = S.carrito.filter((i) => i.id !== id);
   await guardarCarrito();
   updateChrome();
@@ -335,7 +346,7 @@ async function refrescarCarrito() {
 
   const slugs = [...new Set(S.carrito.map((i) => i.slug))];
   S.refresco = { hechos: 0, total: slugs.length, cortar: false, fallos: 0 };
-  pintarCarrito();
+  pintarAccionRefresco();
 
   for (const slug of slugs) {
     if (S.refresco.cortar) break;
@@ -353,7 +364,9 @@ async function refrescarCarrito() {
       S.refresco.fallos += 1;
     }
     S.refresco.hechos += 1;
-    pintarCarrito();
+    pintarAccionRefresco();
+    S.carrito.filter((i) => i.slug === slug).forEach(actualizarFila);
+    pintarTotales();
   }
 
   const { cortar, fallos } = S.refresco;
@@ -376,6 +389,7 @@ async function vaciarCarrito() {
     danger: true,
   });
   if (!ok) return;
+  await leave(document.querySelector('.ox-main > .ox-scroll'), { kind: 'rise', remove: true });
   S.carrito = [];
   await guardarCarrito();
   updateChrome();
@@ -507,7 +521,7 @@ async function barrerPrecios(items) {
       S.precios.set(it.slug, { min: null, cuantas: 0, fecha: null, fallo: true });
     }
     S.barrido.hechos += 1;
-    pintarBuscar();
+    pintarProgresoBarrido(it.slug);
   }
 
   const cortado = S.barrido.cortar;
@@ -553,33 +567,36 @@ function viewBuscar() {
     actions: `<button class="ox-btn ox-btn--secondary ox-flashable" data-action="recargar"
                 data-tip="Volver a consultar, salteando lo guardado">
                 ${Icons.svg('retry')} Actualizar</button>`,
-  }) + '<div class="ox-scroll ox-grow" id="zona-buscar"></div>');
+  }) + `<div class="ox-scroll ox-grow" id="zona-buscar">
+    <div id="controles-buscar"></div>
+    <div id="resultados-buscar"></div>
+  </div>`);
 
   pintarBuscar();
 }
 
-/** Repinta SOLO la zona de abajo del campo. El buscador se deja intacto a
-    propósito: si se repintara entero, escribir mientras llegan los datos
-    perdería el foco y el cursor saltaría al principio. */
+/** Repinta SOLO la zona de resultados. El buscador se monta una vez y queda
+    intacto mientras llegan datos: conserva foco, selección y la cápsula del
+    modo en vez de hacerlos nacer de nuevo en cada progreso. */
 function pintarBuscar(valorForzado) {
   if (Router.name !== 'buscar') return;
   const zona = document.getElementById('zona-buscar');
   if (!zona) return;
 
-  const campo = document.getElementById('campo');
-  const habiaFoco = document.activeElement === campo;
-  const valor = valorForzado ?? campo?.value ?? S.busqueda?.patron ?? '';
-
-  zona.innerHTML = buscadorHTML(valor) + resultadosHTML();
-  Icons.mount(zona);
-  initScrollFades(zona);
-  wireBuscar(zona);
-
-  if (habiaFoco) {
-    const nuevo = document.getElementById('campo');
-    nuevo?.focus();
-    nuevo?.setSelectionRange(nuevo.value.length, nuevo.value.length);
+  const controles = document.getElementById('controles-buscar');
+  if (controles && !controles.childElementCount) {
+    controles.innerHTML = buscadorHTML(valorForzado ?? S.busqueda?.patron ?? '');
+    Icons.mount(controles);
+    wireBuscar(zona);
+  } else if (valorForzado != null) {
+    const campo = document.getElementById('campo');
+    if (campo && campo.value !== valorForzado) campo.value = valorForzado;
   }
+
+  const resultados = document.getElementById('resultados-buscar');
+  if (!resultados) return;
+  replaceHTML(resultados, resultadosHTML(), { kind: 'rise' });
+  Icons.mount(resultados);
 }
 
 function buscadorHTML(valor) {
@@ -653,9 +670,9 @@ function barridoHTML(vista) {
   if (S.barrido) {
     const pct = Math.round((S.barrido.hechos / S.barrido.total) * 100);
     return `
-      <div class="ox-row" style="gap:10px;align-items:center">
-        <div class="ox-meter" style="--ox-pct:${pct};width:120px"><div class="ox-meter__fill"></div></div>
-        <span class="ox-meta ox-num">${S.barrido.hechos}/${S.barrido.total}</span>
+      <div class="ox-row" data-barrido style="gap:10px;align-items:center">
+        <div class="ox-meter" style="--ox-pct:${pct}%;width:120px"><div class="ox-meter__fill"></div></div>
+        <span class="ox-meta ox-num" data-barrido-cuenta>${S.barrido.hechos}/${S.barrido.total}</span>
         <button class="ox-btn ox-btn--ghost ox-btn--sm ox-flashable" data-action="cortar">Cortar</button>
       </div>`;
   }
@@ -670,7 +687,26 @@ function barridoHTML(vista) {
       ${Icons.svg('download', 'ox-icon--sm')} Traer precios (${faltan})</button>`;
 }
 
-function filaProducto(it) {
+/** Durante el barrido se conservan la lista y el medidor. Solo cambia la fila
+    que acaba de llegar y el progreso avanza sobre el mismo nodo. */
+function pintarProgresoBarrido(slug) {
+  if (Router.name !== 'buscar' || !S.barrido) return;
+  const fila = [...document.querySelectorAll('[data-resultado]')]
+    .find((el) => el.dataset.resultado === slug);
+  const item = (S.expansion || S.busqueda)?.items?.find((it) => it.slug === slug);
+  const precio = fila?.querySelector('[data-cell="precio"]');
+  if (precio && item) {
+    replaceHTML(precio, precioProductoHTML(item), { kind: 'tick' });
+    Icons.mount(precio);
+  }
+
+  const control = document.querySelector('[data-barrido]');
+  const pct = Math.round((S.barrido.hechos / S.barrido.total) * 100);
+  control?.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${pct}%`);
+  setText(control?.querySelector('[data-barrido-cuenta]'), `${S.barrido.hechos}/${S.barrido.total}`);
+}
+
+function precioProductoHTML(it) {
   const p = S.precios.get(it.slug);
   let precio = '<span class="ox-meta">—</span>';
 
@@ -686,14 +722,18 @@ function filaProducto(it) {
       </div>`;
   }
 
+  return precio;
+}
+
+function filaProducto(it) {
   return `
-    <div class="ox-listitem" data-open="${esc(it.slug)}" tabindex="0">
+    <div class="ox-listitem" data-open="${esc(it.slug)}" data-resultado="${esc(it.slug)}" tabindex="0">
       <span class="ox-iconcell">${Icons.svg('pildora', 'ox-icon--sm')}</span>
       <div class="ox-listitem__main">
         <div class="ox-listitem__title ox-truncate ox-copyable">${esc(it.nombre)}</div>
         <div class="ox-listitem__sub ox-truncate">${esc(it.laboratorio || '—')}</div>
       </div>
-      <div class="ox-listitem__aside">${precio}</div>
+      <div class="ox-listitem__aside" data-cell="precio">${precioProductoHTML(it)}</div>
       <div class="ox-rowactions">${botonFavorito(it.slug)}</div>
     </div>`;
 }
@@ -1008,9 +1048,9 @@ function refrescoHTML() {
   if (S.refresco) {
     const pct = Math.round((S.refresco.hechos / S.refresco.total) * 100);
     return `
-      <div class="ox-row" style="gap:10px;align-items:center">
-        <div class="ox-meter" style="--ox-pct:${pct};width:120px"><div class="ox-meter__fill"></div></div>
-        <span class="ox-meta ox-num">${S.refresco.hechos}/${S.refresco.total}</span>
+      <div class="ox-row" data-refresco style="gap:10px;align-items:center">
+        <div class="ox-meter" style="--ox-pct:${pct}%;width:120px"><div class="ox-meter__fill"></div></div>
+        <span class="ox-meta ox-num" data-refresco-cuenta>${S.refresco.hechos}/${S.refresco.total}</span>
         <button class="ox-btn ox-btn--ghost ox-btn--sm ox-flashable" data-action="cortar-refresco">Cortar</button>
       </div>`;
   }
@@ -1174,15 +1214,34 @@ function totalesHTML() {
 function actualizarFila(it) {
   const tr = document.querySelector(`tr[data-item="${it.id}"]`);
   if (!tr) return;
-  tr.querySelector('[data-cell="unit"]').innerHTML = unitarioHTML(it);
-  tr.querySelector('[data-cell="sub"]').innerHTML = subtotalHTML(it);
+  replaceHTML(tr.querySelector('[data-cell="unit"]'), unitarioHTML(it), { kind: 'tick' });
+  replaceHTML(tr.querySelector('[data-cell="sub"]'), subtotalHTML(it), { kind: 'tick' });
 }
 
 function pintarTotales() {
   const caja = document.getElementById('carrito-totales');
   if (!caja) return;
-  caja.innerHTML = totalesHTML();
+  replaceHTML(caja, totalesHTML(), { kind: 'rise' });
   Icons.mount(caja);
+}
+
+/** Cambia botón ↔ progreso una vez y, durante la descarga, mueve el medidor
+    existente. Así no se reinicia su transición en cada producto. */
+function pintarAccionRefresco() {
+  if (Router.name !== 'carrito') return;
+  const acciones = document.querySelector('.ox-viewhead__actions');
+  if (!acciones) return;
+  const control = acciones.querySelector('[data-refresco]');
+  if (S.refresco && control) {
+    const pct = Math.round((S.refresco.hechos / S.refresco.total) * 100);
+    control.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${pct}%`);
+    setText(control.querySelector('[data-refresco-cuenta]'), `${S.refresco.hechos}/${S.refresco.total}`);
+    return;
+  }
+  replaceHTML(acciones, `${refrescoHTML()}
+    <button class="ox-btn ox-btn--ghost ox-flashable" data-action="vaciar-carrito">
+      ${Icons.svg('trash')} Vaciar</button>`, { kind: 'rise' });
+  Icons.mount(acciones);
 }
 
 /** Todos los listeners van sobre nodos que mueren con el repintado. */
@@ -1252,9 +1311,10 @@ function updateHTML() {
     accion = `<button class="ox-btn ox-btn--primary ox-flashable" data-action="bajar-update">
       ${Icons.svg('download')} Descargar ${esc(u.version || '')}</button>`;
   } else if (u.fase === 'descargando') {
+    const progreso = Math.round(Number(u.progreso) || 0);
     accion = `<div class="ox-row" style="gap:10px;align-items:center">
-      <div class="ox-meter" style="--ox-pct:${u.progreso};width:170px"><div class="ox-meter__fill"></div></div>
-      <span class="ox-meta ox-num">${u.progreso}%</span></div>`;
+      <div class="ox-meter" style="--ox-pct:${progreso}%;width:170px"><div class="ox-meter__fill"></div></div>
+      <span class="ox-meta ox-num" data-update-progreso>${progreso}%</span></div>`;
   } else if (u.fase === 'lista') {
     accion = `<button class="ox-btn ox-btn--primary ox-flashable" data-action="instalar-update">
       ${Icons.svg('zap')} Reiniciar e instalar ${esc(u.version || '')}</button>`;
@@ -1267,7 +1327,7 @@ function updateHTML() {
     : 'Se busca sola al abrir la app, pero descargar e instalar los decidís vos.';
 
   return `
-    <div class="ox-section">
+    <div class="ox-section" data-update-fase="${esc(u.fase)}">
       <div class="ox-section__head"><span class="ox-section__title">Actualizaciones</span></div>
       <div class="ox-card"><div class="ox-card__body">
         <div class="ox-kv">
@@ -1291,7 +1351,15 @@ function pintarUpdate() {
   if (Router.name !== 'ajustes') return;
   const caja = document.getElementById('caja-update');
   if (!caja) return;
-  caja.innerHTML = updateHTML();
+  const u = S.update || { fase: 'inactivo' };
+  const actual = caja.querySelector('[data-update-fase]');
+  if (u.fase === 'descargando' && actual?.dataset.updateFase === 'descargando') {
+    const progreso = Math.round(Number(u.progreso) || 0);
+    actual.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${progreso}%`);
+    setText(actual.querySelector('[data-update-progreso]'), `${progreso}%`);
+    return;
+  }
+  replaceHTML(caja, updateHTML(), { kind: 'rise' });
   Icons.mount(caja);
 }
 
@@ -1408,7 +1476,7 @@ function viewAjustes() {
     bindStepper(st, async (valor) => {
       S.settings = await api.settings.save({ cacheHoras: Math.max(0, Number(valor) || 0) });
       const kv = document.getElementById('kv-horas');
-      if (kv) kv.textContent = S.settings.cacheHoras;
+      setText(kv, S.settings.cacheHoras);
     });
   }
 
@@ -1420,8 +1488,8 @@ async function refrescarEstadoCache() {
   if (!est) return;
   const e = document.getElementById('kv-entradas');
   const b = document.getElementById('kv-bytes');
-  if (e) e.textContent = est.entradas;
-  if (b) b.textContent = fmtBytes(est.bytes);
+  setText(e, est.entradas);
+  setText(b, fmtBytes(est.bytes));
 }
 
 /* ══ Vista: Piezas ═══════════════════════════════════════════════════════════
@@ -1457,7 +1525,7 @@ function wireShell() {
   const maxBtn = document.getElementById('win-max');
   maxBtn?.addEventListener('click', () => w?.toggleMaximize());
   w?.onMaximized((isMax) => {
-    maxBtn.innerHTML = Icons.svg(isMax ? 'winRestore' : 'winMax');
+    replaceHTML(maxBtn, Icons.svg(isMax ? 'winRestore' : 'winMax'), { kind: 'fade', duration: 110 });
     maxBtn.setAttribute('aria-label', isMax ? 'Restaurar' : 'Maximizar');
   });
 
@@ -1556,6 +1624,7 @@ async function borrarHistorial() {
     danger: true,
   });
   if (!ok) return;
+  await leave(document.querySelector('.ox-main .ox-list'), { kind: 'rise', remove: true });
   S.historial = [];
   await attempt(() => api.doc.write(HISTORIAL, []));
   updateChrome();
@@ -1580,38 +1649,38 @@ async function vaciarCache() {
 /** Todo lo que vive fuera de la vista: statusbar y contadores del rail. */
 function updateChrome() {
   const cf = document.querySelector('[data-view="favoritos"] .ox-navitem__count');
-  if (cf) cf.textContent = S.favoritos.length;
+  setText(cf, S.favoritos.length);
 
   const ch = document.querySelector('[data-view="historial"] .ox-navitem__count');
-  if (ch) ch.textContent = S.historial.length;
+  setText(ch, S.historial.length);
 
   const cc = document.querySelector('[data-view="carrito"] .ox-navitem__count');
-  if (cc) cc.textContent = S.carrito.length;
+  setText(cc, S.carrito.length);
 
   // El total del carrito siempre a la vista: es el número por el que existe.
   const sc = document.querySelector('#stat-carrito .ox-statusbar__value');
   if (sc) {
     const t = totalesCarrito();
-    sc.textContent = S.carrito.length ? `${fmtPesos(t.total)} · ${plural(t.unidades, 'unidad', 'unidades')}` : 'carrito vacío';
+    setText(sc, S.carrito.length ? `${fmtPesos(t.total)} · ${plural(t.unidades, 'unidad', 'unidades')}` : 'carrito vacío');
   }
 
   const d = descuento();
   const valor = document.querySelector('#stat-descuento .ox-statusbar__value');
-  if (valor) valor.textContent = d.activo ? `−${d.porcentaje}%` : 'sin descuento';
+  setText(valor, d.activo ? `−${d.porcentaje}%` : 'sin descuento');
 
   const ctx = document.getElementById('titlebar-context');
   if (ctx) {
     const nombre = Router.name === 'producto'
       ? (S.ficha?.nombre || S.refs.get(Router.param)?.nombre || '')
       : '';
-    ctx.innerHTML = nombre
+    replaceHTML(ctx, nombre
       ? `${Icons.svg('pildora', 'ox-icon--sm')}<span>${esc(nombre)}</span>`
-      : '';
+      : '', { kind: 'fade' });
   }
 
   const dir = S.info?.dataDir || '';
   const foot = document.getElementById('rail-foot');
-  if (foot) foot.innerHTML = dir ? `<div class="ox-meta" data-tip="${esc(dir)}">${path(dir)}</div>` : '';
+  replaceHTML(foot, dir ? `<div class="ox-meta" data-tip="${esc(dir)}">${path(dir)}</div>` : '', { kind: 'fade' });
 }
 
 function registerCommands() {

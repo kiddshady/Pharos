@@ -7,7 +7,7 @@
 
 import { Icons } from './icons.js';
 import { Toast } from './overlays.js';
-import { initScrollFades } from './motion.js';
+import { animateIn, initScrollFades } from './motion.js';
 
 /** El contenedor de la vista activa. Lazy: no asume cuándo corre este módulo. */
 let _view = null;
@@ -138,9 +138,16 @@ export function path(ruta, { colas = 2 } = {}) {
  */
 export function paint(html) {
   const el = viewEl();
+  const habiaContenido = el.childElementCount > 0;
+  const kind = el.dataset.motionKind || 'fade';
   el.innerHTML = html;
   Icons.mount(el);
   initScrollFades(el);
+  // La primera vista también entra, pero debajo del splash: cuando éste se
+  // esfuma ya está asentada. En las demás, la duración expresa la escala del
+  // cambio: navegación direccional; repintado local, apenas un fundido.
+  if (habiaContenido || kind === 'glide') animateIn(el, { kind });
+  delete el.dataset.motionKind;
   return el;
 }
 

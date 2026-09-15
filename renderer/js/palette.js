@@ -8,7 +8,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { Icons } from './icons.js';
-import { exit, scrollFade } from './motion.js';
+import { animateIn, exit, scrollFade } from './motion.js';
 
 const commands = [];
 let open = null;
@@ -145,6 +145,7 @@ function render(query) {
         ${Icons.svg('search')}
         <div class="ox-empty__text">Nada coincide con lo que escribiste.</div>
       </div>`;
+    animateIn(list, { kind: 'fade', duration: 110 });
     return;
   }
 
@@ -183,6 +184,9 @@ function render(query) {
     });
     list.appendChild(b);
   });
+  // Al filtrar, los resultados son nodos nuevos. Un fundido corto evita el
+  // "flash" sin demorar la escritura ni escalonar cada tecla.
+  animateIn(list, { kind: 'fade', duration: 110 });
 }
 
 export function show() {

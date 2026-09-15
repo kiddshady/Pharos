@@ -146,3 +146,14 @@
    Al cambiar de sección la vista entra sobre el eje del flujo. Es la misma
    gramática que los pasos del pipeline: todo en Onyx avanza hacia la derecha. */
 .ox-view { animation: ox-glide-in var(--ox-t-4) var(--ox-ease) both; }
+
+/* El sistema operativo puede pedir menos movimiento. Los cambios siguen
+   teniendo causa y efecto por color/estado, pero no desplazan la pantalla. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
