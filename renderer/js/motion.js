@@ -192,9 +192,35 @@ export function bindStepper(root, onChange) {
   }
 
   let timer = null;
-  const frenar = () => { clearTimeout(timer); timer = null; };
+  let puntero = null;
+
+  /* El cambio puede repintar la vista y sacar `root` del DOM mientras el mouse
+     todavía está abajo. En ese caso el pointerup ya no burbujea por este nodo:
+     cae sobre el stepper nuevo y el timer viejo quedaba repitiendo solo. La
+     ventana sobrevive al repintado, así que escucha la liberación durante cada
+     pulsación y sirve como red de seguridad de la captura del puntero. */
+  const dejarDeEscucharFin = () => {
+    window.removeEventListener('pointerup', frenar, true);
+    window.removeEventListener('pointercancel', frenar, true);
+    window.removeEventListener('blur', frenar, true);
+  };
+
+  function frenar(e) {
+    if (e?.pointerId != null && puntero != null && e.pointerId !== puntero) return;
+    clearTimeout(timer);
+    timer = null;
+    puntero = null;
+    dejarDeEscucharFin();
+  }
+
+  const escucharFin = () => {
+    window.addEventListener('pointerup', frenar, true);
+    window.addEventListener('pointercancel', frenar, true);
+    window.addEventListener('blur', frenar, true);
+  };
 
   function arrancar(dir, desde) {
+    if (puntero == null) return;
     const transcurrido = Date.now() - desde;
     if (!mover(dir)) { frenar(); return; }
     timer = setTimeout(() => arrancar(dir, desde), transcurrido > ACELERA_A ? PASO_RAPIDO : PASO_LENTO);
@@ -204,6 +230,9 @@ export function bindStepper(root, onChange) {
     const btn = e.target.closest('[data-step]');
     if (!btn || btn.disabled) return;
     e.preventDefault();                 // que el campo no pierda el foco
+    frenar();
+    puntero = e.pointerId;
+    escucharFin();
     const dir = btn.dataset.step === 'up' ? 1 : -1;
     mover(dir);
     const desde = Date.now();
@@ -211,7 +240,7 @@ export function bindStepper(root, onChange) {
     /* La captura del puntero es lo que hace que soltar CUENTE aunque el dedo se
        haya ido del botón. Sin esto, arrastrar afuera deja el contador corriendo
        para siempre. */
-    btn.setPointerCapture?.(e.pointerId);
+    try { btn.setPointerCapture?.(e.pointerId); } catch { /* eventos sintéticos */ }
   });
 
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {

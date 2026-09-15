@@ -231,6 +231,39 @@ app.whenReady().then(async () => {
     ok('la titlebar muestra el producto abierto',
       (await js(`document.getElementById('titlebar-context').textContent.trim().length`)) > 0);
 
+    /* El callback del stepper repinta la ficha para recalcular toda la tabla.
+       Eso reemplaza el botón entre pointerdown y pointerup: la liberación cae
+       sobre el botón NUEVO y tiene que frenar el timer del control viejo. */
+    await click('[data-pct="20"]');
+    await sleep(500);
+    const clickDescuento = await js(`(async () => {
+      const viejo = document.getElementById('st-descuento');
+      const antes = Number(viejo.querySelector('input').value);
+      const arriba = viejo.querySelector('[data-step="up"]');
+      arriba.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, pointerId: 73, pointerType: 'mouse', button: 0, buttons: 1,
+      }));
+
+      // Esperar el save + repintado, no una demora fija dependiente del disco.
+      for (let i = 0; i < 80 && document.getElementById('st-descuento') === viejo; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const nuevo = document.getElementById('st-descuento');
+      nuevo.querySelector('[data-step="up"]').dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true, pointerId: 73, pointerType: 'mouse', button: 0, buttons: 0,
+      }));
+      await new Promise((r) => setTimeout(r, 850));
+      return {
+        antes,
+        despues: Number(document.querySelector('#st-descuento input').value),
+        reemplazado: nuevo !== viejo,
+      };
+    })()`);
+    ok('el stepper repinta la ficha durante la pulsación', clickDescuento.reemplazado === true,
+      JSON.stringify(clickDescuento));
+    ok('un click corto en el descuento suma exactamente uno y se detiene',
+      clickDescuento.despues === clickDescuento.antes + 1, JSON.stringify(clickDescuento));
+
     /* El descuento, medido sobre lo que se VE. Leer el estado interno no
        probaría nada: el bug que importa es que la tabla muestre un número que
        no es el que corresponde. */
