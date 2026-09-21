@@ -9,7 +9,6 @@
 
 import { Icons } from './icons.js';
 import { Tooltip, Toast, Modal } from './overlays.js';
-import Palette from './palette.js';
 import Router from './router.js';
 import {
   initClickFlash, initScrollFades, leave, raf2,
@@ -57,10 +56,6 @@ Icons.add({
   /* Laboratorio: un matraz. */
   matraz: '<path d="M6.4 1.9v4L2.6 12a1.2 1.2 0 0 0 1 1.9h8.8a1.2 1.2 0 0 0 1-1.9L9.6 5.9v-4"/>'
         + '<path d="M5.6 1.9h4.8M4.6 9h6.8"/>',
-
-  /* Salir: el símbolo de encendido. Cerrar la ventana no sale (queda en la
-     bandeja), así que la paleta necesita un comando que sí lo haga. */
-  salir: '<path d="M8 2.4v5.4"/><path d="M4.9 5.2a4.6 4.6 0 1 0 6.2 0"/>',
 
   /* El carrito: manija, canasto y dos ruedas. El canasto es más ancho arriba
      que abajo, que es lo que lo distingue de una caja con ruedas. */
@@ -171,7 +166,6 @@ async function toggleFavorito(slug) {
     Toast.show({ title: 'Guardado en favoritos', text: ref.nombre, icon: 'estrella' });
   }
   updateChrome();
-  registerCommands();
 }
 
 async function anotarHistorial(entrada) {
@@ -276,7 +270,6 @@ async function agregarAlCarrito(indice) {
     icon: 'carrito',
   });
   updateChrome();
-  registerCommands();
   if (Router.name === 'producto') pintarProducto();
 }
 
@@ -289,7 +282,6 @@ async function quitarDelCarrito(id) {
   S.carrito = S.carrito.filter((i) => i.id !== id);
   await guardarCarrito();
   updateChrome();
-  registerCommands();
   Toast.show({ title: 'Quitado del carrito', text: `${it.nombre} · ${it.presentacion}`, icon: 'carrito' });
 }
 
@@ -393,7 +385,6 @@ async function vaciarCarrito() {
   S.carrito = [];
   await guardarCarrito();
   updateChrome();
-  registerCommands();
   Router.refresh();
   Toast.show({ title: 'Carrito vacío', icon: 'carrito' });
 }
@@ -1493,8 +1484,8 @@ async function refrescarEstadoCache() {
 }
 
 /* ══ Vista: Piezas ═══════════════════════════════════════════════════════════
-   La vitrina del sistema visual. No está en el rail —no es parte de la app—
-   pero queda a mano desde la paleta para cuando haya que tocar la UI. */
+   La vitrina interna del sistema visual. No está en el rail ni forma parte de
+   la app: la recorre el smoke cuando hay que verificar los primitivos de UI. */
 
 function viewPiezas() {
   // wireDesign necesita el contenedor donde buscar sus controles. paint() lo
@@ -1531,8 +1522,6 @@ function wireShell() {
 
   document.querySelectorAll('.ox-navitem').forEach((b) =>
     b.addEventListener('click', () => Router.go(b.dataset.view)));
-
-  document.getElementById('btn-palette')?.addEventListener('click', () => Palette.toggle());
 
   /* Delegación global, cableada UNA sola vez. Las vistas se repintan enteras,
      así que enganchar esto adentro de una vista acumularía un handler por
@@ -1683,53 +1672,6 @@ function updateChrome() {
   replaceHTML(foot, dir ? `<div class="ox-meta" data-tip="${esc(dir)}">${path(dir)}</div>` : '', { kind: 'fade' });
 }
 
-function registerCommands() {
-  const d = descuento();
-  Palette.clear();
-  Palette.register([
-    { id: 'nav-buscar', group: 'Ir a', icon: 'search', label: 'Buscar', run: () => Router.go('buscar') },
-    { id: 'nav-fav', group: 'Ir a', icon: 'estrella', label: 'Favoritos', run: () => Router.go('favoritos') },
-    {
-      id: 'nav-carrito', group: 'Ir a', icon: 'carrito', label: 'Carrito',
-      hint: S.carrito.length ? `${plural(S.carrito.length, 'ítem', 'ítems')} · ${fmtPesos(totalesCarrito().total)}` : 'vacío',
-      run: () => Router.go('carrito'),
-    },
-    { id: 'nav-hist', group: 'Ir a', icon: 'clock', label: 'Historial', run: () => Router.go('historial') },
-    { id: 'nav-ajustes', group: 'Ir a', icon: 'settings', label: 'Ajustes', run: () => Router.go('ajustes') },
-    { id: 'nav-piezas', group: 'Ir a', icon: 'layers', label: 'Piezas', hint: 'sistema visual', run: () => Router.go('piezas') },
-    {
-      id: 'buscar-update', group: 'La app', icon: 'retry', label: 'Buscar actualizaciones',
-      run: () => { Router.go('ajustes'); accionUpdate('buscar-update'); },
-    },
-    {
-      id: 'salir', group: 'La app', icon: 'salir', label: 'Salir de Pharos',
-      hint: 'cerrar la ventana la deja en la bandeja',
-      run: () => api?.quit(),
-    },
-    ...(S.carrito.length ? [{
-      id: 'vaciar-carrito', group: 'Carrito', icon: 'trash', label: 'Vaciar el carrito',
-      run: () => vaciarCarrito(),
-    }] : []),
-    {
-      id: 'desc-toggle', group: 'Descuento', icon: 'porcentaje',
-      label: d.activo ? `Apagar el descuento (${d.porcentaje}%)` : 'Aplicar el descuento',
-      run: async () => {
-        await guardarDescuento({ activo: !d.activo, porcentaje: d.porcentaje || 10 });
-        registerCommands();
-        Router.refresh();
-      },
-    },
-    ...S.favoritos.map((f) => ({
-      id: `fav-${f.id}`,
-      group: 'Favoritos',
-      icon: 'pildora',
-      label: f.nombre,
-      hint: f.laboratorio || '',
-      run: () => abrirProducto(f.slug),
-    })),
-  ]);
-}
-
 /* ══ Color de la ventana ═════════════════════════════════════════════════════
    --ox-bg está en oklch y Electron solo entiende hex. Se resuelve acá y se le
    manda al proceso principal, así el frame fantasma que pinta el compositor de
@@ -1745,7 +1687,6 @@ function syncWindowColor() {
 async function boot() {
   Icons.mount(document);
   Tooltip.init();
-  Palette.init();
   initClickFlash();
   initScrollFades();
   wireShell();
@@ -1771,7 +1712,6 @@ async function boot() {
     pintarUpdate();
   });
 
-  registerCommands();
   updateChrome();
   Router.onChange(updateChrome);
   Router.go('buscar');

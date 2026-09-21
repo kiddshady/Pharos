@@ -21,8 +21,6 @@ const call = async (channel, ...args) => {
 
 contextBridge.exposeInMainWorld('onyx', {
   info: () => call('app:info'),
-  /** Salir de verdad. `win.close` no sale: esconde la ventana en la bandeja. */
-  quit: () => ipcRenderer.send('app:quit'),
 
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),

@@ -52,8 +52,7 @@ cerrar la ventana no mata la app: la esconde en la bandeja del sistema, con el
 caché caliente y la vista donde quedó, y volver es instantáneo. Se vuelve con
 un click en el ícono, o abriendo Pharos de nuevo: es de **una sola instancia**,
 y el acceso directo trae la ventana que ya existe en vez de levantar otro
-proceso. Salir de verdad es una decisión explícita, desde el menú de la bandeja
-o con *Salir de Pharos* en la paleta (`Ctrl K`).
+proceso. Salir de verdad es una decisión explícita desde el menú de la bandeja.
 
 ---
 
@@ -229,8 +228,8 @@ Vaciar el caché desde Ajustes no toca favoritos ni historial.
 
 Todo lo de Onyx sigue valiendo: solo oscuro, cada símbolo es un SVG propio,
 nada nativo de Chromium, y todo cambio de estado va animado. La referencia está
-en [docs/sistema.md](docs/sistema.md) y la vitrina viva adentro de la app, en
-**Piezas** — no está en el rail, se llega por la paleta (`Ctrl K`).
+en [docs/sistema.md](docs/sistema.md). La vitrina interna **Piezas** sigue viva
+como herramienta de desarrollo y la recorre el smoke del renderer.
 
 Los íconos del dominio (faro, píldora, escudo, matraz, porcentaje, estrella) se
 suman con `Icons.add()` en `app.js`, nunca editando `icons.js`: así traerse una

@@ -148,7 +148,7 @@ p, code, pre,
    dentro de un div— `overflow` y `text-overflow` no aplican, la clase no hace
    absolutamente nada y el texto termina cortado al aire contra el contenedor.
    Se notaba solo donde el span no era ítem de un flex (que lo blockifica), y
-   por eso pasó desapercibido tanto tiempo: en los menús y en la paleta anda. */
+   por eso pasó desapercibido tanto tiempo: en los menús anda igual. */
 .ox-truncate {
   display: block;
   min-width: 0;

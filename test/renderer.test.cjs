@@ -440,32 +440,23 @@ app.whenReady().then(async () => {
         && (await js(`!!document.querySelector('.ox-empty')`)));
   }
 
-  /* ── 4-bis. La paleta de comandos ──────────────────────────────────────────
-     Pharos no usa el layout de dos paneles, así que acá no hay inspector que
-     medir. Lo que sí hay que probar es la paleta, porque es el único camino a
-     la vitrina —Piezas no está en el rail— y porque las secciones que siguen
-     corren todas sobre ella. */
-  console.log('\n4-bis. La paleta de comandos');
-  await click('#btn-palette');
-  await sleep(600);
-  ok('la paleta abre', await js(`!!document.querySelector('.ox-palette')`));
+  /* ── 4-bis. La paleta de comandos ya no existe ─────────────────────────────
+     La ausencia también es contrato: no tiene que quedar ni el botón ni el
+     atajo global. Piezas sigue como vitrina interna y el smoke entra por el
+     router para verificar los primitivos sin reintroducir una puerta de UI. */
+  console.log('\n4-bis. Sin paleta de comandos');
+  ok('la barra no ofrece una paleta de comandos',
+    !(await js(`document.querySelector('#btn-palette')`)));
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'K', modifiers: ['control'] });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'K', modifiers: ['control'] });
+  await sleep(300);
+  ok('Ctrl+K tampoco abre una paleta de comandos',
+    !(await js(`document.querySelector('.ox-palette')`)));
 
-  const caja = await js(`(() => { const p = document.querySelector('.ox-palette');
-    if (!p) return null; const r = p.getBoundingClientRect();
-    return { t: Math.round(r.top), l: Math.round(r.left), b: Math.round(r.bottom), rt: Math.round(r.right) }; })()`);
-  ok('y cae dentro de la ventana',
-    caja && caja.t >= 0 && caja.l >= 0 && caja.b <= H && caja.rt <= W, JSON.stringify(caja));
-
-  await js(`(() => { const i = document.querySelector('.ox-palette__input');
-    if (!i) return false; i.value = 'piezas';
-    i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
-  await sleep(500);
-  ok('filtra por lo escrito',
-    (await js(`document.querySelectorAll('.ox-palette__item').length`)) > 0);
-
-  await click('.ox-palette__item');
+  await js(`import('./js/router.js').then(({ default: Router }) => Router.go('piezas'))`);
   await sleep(1000);
-  ok('y navega a donde se le pidió', await js(`!!document.getElementById('demo-stepper')`));
+  ok('la vitrina interna sigue disponible para el smoke',
+    await js(`!!document.getElementById('demo-stepper')`));
 
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('#demo-menu');
@@ -523,25 +514,6 @@ app.whenReady().then(async () => {
   }
   await js(`document.body.click(); true`); await sleep(300);
 
-  await click('#btn-palette');
-  await sleep(500);
-  const pal = await js(`(() => { const p=document.querySelector('.ox-palette'); if(!p) return null;
-    const r=p.getBoundingClientRect(); return {t:Math.round(r.top),cx:Math.round(r.left+r.width/2)}; })()`);
-  ok('la paleta abre centrada y visible', pal && pal.t > 0 && Math.abs(pal.cx - W / 2) < 4, JSON.stringify(pal));
-
-  /* Y el campo vacío no promete cosas de otra app. Estuvo diciendo «Buscar
-     comandos, pipelines, agentes…» —vocabulario de aquella para la que se
-     escribió esta paleta— y viajó con la plantilla hasta un editor de química,
-     donde ofrecía dos features que no existen. Un texto que solo se lee con el
-     campo en blanco es de los que nadie vuelve a mirar: que lo mire esto. */
-  const ph = await js(`document.querySelector('.ox-palette__input')?.placeholder || ''`);
-  ok('con una pista en el campo vacío', ph.length > 3, ph);
-  ok('y sin vocabulario prestado de otra app', !/pipeline|agente/i.test(ph), ph);
-
-  await click('.ox-scrim'); await sleep(400);
-
-  await click('[data-view="piezas"]');
-  await sleep(900);
   await click('#demo-modal');
   await sleep(600);
   const modal = await js(`(() => { const m=document.querySelector('.ox-modal'); if(!m) return null;

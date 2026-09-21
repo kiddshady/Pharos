@@ -74,9 +74,9 @@ let win = null;
 
 /* Con bandeja, cerrar la ventana la ESCONDE en vez de matar la app. Solo se
    sale de verdad cuando esta bandera está prendida: la prende el menú de la
-   bandeja, el comando "Salir" de la paleta, o el propio Electron en
-   `before-quit` (que es por donde pasa también el instalador de una
-   actualización, así que quitAndInstall no se queda trabado en el close). */
+   bandeja o el propio Electron en `before-quit` (que es por donde pasa también
+   el instalador de una actualización, así que quitAndInstall no se queda
+   trabado en el close). */
 let isQuitting = false;
 
 /* ── Estado de la ventana ────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ function quit() {
 /* ── Bandeja ─────────────────────────────────────────────────────────────────
    Pharos se consulta muchas veces al día y de a ratos. Cerrar la ventana la
    deja acá en vez de matar el proceso, así la siguiente consulta no paga un
-   arranque entero. Salir es una decisión explícita: este menú o la paleta. */
+   arranque entero. Salir es una decisión explícita desde este menú. */
 let tray = null;
 
 function createTray() {
@@ -254,9 +254,6 @@ ipcMain.on('win:toggle-maximize', () => {
 });
 ipcMain.on('win:close', () => win && win.close());
 ipcMain.handle('win:is-maximized', () => (win ? win.isMaximized() : false));
-// Cerrar esconde (ver arriba); esto es lo otro: salir de verdad, desde la paleta.
-ipcMain.on('app:quit', () => quit());
-
 // El renderer manda su --ox-bg ya resuelto a hex. Es lo que hace que el frame
 // fantasma del restore siga camuflado aunque cambies el matiz en tokens.css.
 ipcMain.on('win:set-bg', (_e, hex) => {
