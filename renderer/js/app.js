@@ -34,18 +34,20 @@ Icons.add({
 
   estrella: '<path d="M8 2.2l1.8 3.7 4.1.6-3 2.9.7 4.1L8 11.6l-3.6 1.9.7-4.1-3-2.9 4.1-.6z"/>',
 
-  /* Una cápsula inclinada, partida por su junta.
-     El cuerpo y la junta van en el MISMO grupo rotado: si se rota solo el
-     cuerpo y la junta se dibuja aparte, queda cruzándolo en diagonal y
-     sobresaliendo por los costados — y el ícono se lee como un clip. Dentro
-     del grupo, la junta es una vertical en el centro y la rotación la deja
-     perpendicular al eje sola.
-     El rect mide 10×4.4 y no más: rotado 40°, su esquina más lejana queda a
-     5,46 del centro, y sumando el medio trazo el dibujo entra justo en el
-     margen de la grilla de 16. */
-  pildora: '<g transform="rotate(-40 8 8)">'
-         + '<rect x="3" y="5.8" width="10" height="4.4" rx="2.2"/>'
-         + '<path d="M8 5.8v4.4"/></g>',
+  /* Una cápsula inclinada, con una mitad rellena.
+     La versión anterior era el contorno partido por una rayita en la junta, y
+     a 14–15 px —el tamaño de las filas y de la titlebar— se leía como un
+     eslabón de cadena: dos óvalos de trazo encadenados. Lo que la separa de un
+     eslabón es el RELLENO de una mitad, que es además como se dibuja una
+     cápsula en todos lados; la junta sale sola del borde del relleno.
+     El contorno y el relleno van en el MISMO grupo rotado, así la mitad cae
+     exacta adentro. El rect mide 12.4×5.2: rotado 45°, su punta más lejana
+     queda a 5,15 del centro, y con el medio trazo el dibujo entra justo en el
+     margen de la grilla de 16. El relleno es un atributo del path (como los
+     puntos de `list`): le gana al `fill: none` que hereda de .ox-icon. */
+  pildora: '<g transform="rotate(-45 8 8)">'
+         + '<rect x="1.8" y="5.4" width="12.4" height="5.2" rx="2.6"/>'
+         + '<path d="M8 5.4H4.4a2.6 2.6 0 0 0 0 5.2H8z" fill="currentColor" stroke="none"/></g>',
 
   porcentaje: '<path d="M12.8 3.2 3.2 12.8"/><circle cx="4.9" cy="4.9" r="1.9"/>'
             + '<circle cx="11.1" cy="11.1" r="1.9"/>',
