@@ -1,0 +1,42 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHAROS — las piezas propias
+   Lo que es de esta app y no del sistema lleva el prefijo `ph-`, conviviendo
+   con `ox-`. Así traerse una versión nueva de Onyx no pisa nada de acá.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── La baldosa de la fila ───────────────────────────────────────────────────
+   El ícono que encabeza cada fila de las listas (resultados, favoritos,
+   historial). Antes era un `.ox-iconcell`, que es la celda de la VITRINA de
+   íconos: con su propio hover —fondo y trazo del acento— adentro de una fila
+   que ya tiene el suyo, se leía como un botón suelto, y el ícono sin plano
+   quedaba flotando chico y gris. La baldosa es un plano apenas elevado sobre
+   la vista, neutro (el acento no decora), que sube con el hover de SU fila. */
+.ph-lead {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--ox-r-sm);
+  background: var(--ox-s2);
+  color: var(--ox-text-3);
+  transition: var(--tr-color);
+}
+.ph-lead .ox-icon { width: 15px; height: 15px; }
+.ox-listitem:hover .ph-lead { background: var(--ox-s3); color: var(--ox-text-2); }
+
+/* ── La estrella de favorito ─────────────────────────────────────────────────
+   Se rellena, no se reemplaza. Con `.ox-icon--fill` el trazo se apagaba y el
+   relleno se prendía en el mismo cuadro: un salto entre dos dibujos. Acá el
+   contorno queda y el relleno sube con una transición. */
+.ph-star {
+  fill: currentColor;
+  fill-opacity: 0;
+  transition: fill-opacity var(--ox-t-2) var(--ox-ease-soft);
+}
+.is-fav > .ph-star { fill-opacity: 1; }
+
+/* ── El aviso de «ya no está en el Manual» ───────────────────────────────────
+   Su lugar existe siempre para poder aparecer con relevo cuando un refresco lo
+   descubre, pero vacío no ocupa: si no, dejaba el hueco del gap del renglón. */
+[data-cell="perdido"]:empty { display: none; }

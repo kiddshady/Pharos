@@ -21,11 +21,19 @@ componente escribe un valor crudo.
 | `--ox-bg` | Base de la ventana |
 | `--ox-s1` | Rail, statusbar |
 | `--ox-s2` | Card, panel, fila elevada |
-| `--ox-s3` | Menú, modal, popover |
-| `--ox-s4` | Tooltip, lo más alto |
+| `--ox-s3` | Menú, modal, popover, tooltip |
+| `--ox-s4` | Lo más alto: lo que flota sobre todo |
 
 La croma crece con la luminancia: un plano claro necesita más temperatura que
 uno oscuro para no verse lavado.
+
+**`--ox-surface` es «la superficie sobre la que estoy».** La declara cada plano
+que aloja contenido —la base (`--ox-bg`), `.ox-card` (`--ox-s2`),
+`.ox-inspector` (`--ox-s1`), `.ox-modal` (`--ox-s3`)— en el mismo renglón
+donde pinta su fondo, y pinta con ella, así las dos no se pueden desencontrar. La
+lee lo que necesita ser opaco del color de su entorno sin saber dónde cayó: hoy,
+el encabezado sticky de `.ox-table`. Si armás un plano nuevo que pueda alojar
+contenido, declarala.
 
 ### Texto — escalera de énfasis
 
@@ -130,8 +138,8 @@ contenido no se pierde en la nada sino que muere contra un borde.
 Modificadores: `--line-top` · `--line-bottom` (y `--line-left` · `--line-right`
 en `.ox-scroll-x`). El shell ya los aplica donde corresponde, y con `:has()`, así
 que si sacás la pieza que cerraba ese lado el fade vuelve solo: rail contra su
-pie, inspector contra el suyo, vista contra la statusbar y modal contra su pie.
-**El menú no esfuma nunca** — su hairline lo cierra por
+pie, inspector contra el suyo, vista contra la statusbar y contra un encabezado
+con línea, modal contra su pie. **El menú no esfuma nunca** — su hairline lo cierra por
 los cuatro lados, y como máscara y borde viven en el mismo elemento, el fade le
 comía el propio hairline. El tamaño lo da `--ox-fade`, y el contenedor lleva
 padding ≥ ese valor para que en reposo la banda no coma el primer ni el último
@@ -144,6 +152,12 @@ padding ≥ ese valor para que en reposo la banda no coma el primer ni el últim
 `.ox-copyable` — marca contenido como seleccionable. Ante la duda, ponelo.
 
 `.ox-icon` con `--sm` / `--lg` / `--xl` / `--fill`.
+
+**Un ícono adentro de `.ox-meta` o `.ox-label` va en el renglón.** Los dos son
+texto en línea y todo `svg` es `display: block`, así que el ícono se iba solo a
+un renglón de arriba: «de la red», «guardado hace…», «Aplicar descuento» salían
+con el ícono flotando encima del texto. Con `:has(> .ox-icon)` pasan a
+`inline-flex` solo los que llevan ícono. El de humo lo mide (8-nonies).
 
 ---
 
@@ -182,9 +196,30 @@ padding ≥ ese valor para que en reposo la banda no coma el primer ni el últim
 La titlebar entera es zona de arrastre; lo que sea clickeable lleva
 `.ox-no-drag`. `#ox-layer` es donde se portalean todos los overlays.
 
+Los `.ox-wincontrol` se clickean en todo el alto de la titlebar (maximizada,
+la esquina acierta la cruz), pero se ven como una pastilla de 28 px adentro:
+hover, press y el anillo de foco no llegan al canto de la ventana, donde se
+cortaban. Si la titlebar tiene otras piezas al lado, `--ox-wincontrol-nudge`
+corre la pastilla en vertical para alinearla.
+
+### El anillo de foco no se corta
+
+El anillo de `base.css` sale **3.5px por fuera** del elemento. Todo lo que
+pueda recibir foco necesita ese aire hasta cualquier cosa que recorte (un
+`.ox-scroll`, el borde de la ventana) y hasta el canto de la superficie que lo
+contiene. Donde no lo hay, el anillo va **hacia adentro**: así lo llevan el
+`.ox-segmented__opt` (2px de carril) y la `.ox-tr` con tabindex (va de borde a
+borde, muchas veces de una card). El rail deja `--ox-2` arriba del nav por lo
+mismo. `npm run smoke` lo mide en cada vista (9-bis): si sumás una pieza que
+pega su anillo contra un borde, falla ahí.
+
 ### Dentro de la vista
 
-`head({ title, sub, crumbs, actions })` de `ui.js` arma el `.ox-viewhead`.
+`head({ title, sub, crumbs, actions, linea })` de `ui.js` arma el
+`.ox-viewhead`. Con `linea: true` el encabezado se cierra con su hairline en vez
+de cortar al aire, y el shell le apaga solo el esfumado de arriba al scroll de
+esa vista: la línea ya es el límite. Con inspector no hace falta pedirla: el
+shell la pone solo.
 
 Hay dos layouts. El simple, que es el 90% de las vistas:
 
@@ -263,8 +298,11 @@ también adentro de una celda de tabla: el `1fr` reparte parejo solo con ancho
 indefinido, y una celda `.ox-td--tight` le da un ancho definido igual a su
 mínimo, sin espacio libre que repartir. Se descubrió en el carrito de Pharos:
 "Particular" salía de 71px y "PAMI" de 50, y la cápsula caía 10px corrida de su
-texto. El de humo mide el centro del texto contra el centro de la cápsula, en
-el flex del buscador y en la tabla.
+texto. El contrapeso es `max-width: 100%`: en un contenedor más angosto que la
+suma de las opciones el control se acota y el `1fr` reparte lo que hay (las
+columnas quedan desparejas solo cuando no entra otra cosa, y la cápsula —que
+mide— las sigue). El de humo mide el centro del texto contra el centro de la
+cápsula, en el flex del buscador y en la tabla.
 
 ### Un botón nuevo declara SU padding
 
@@ -277,6 +315,10 @@ desbordaba, y **un ítem de grid que desborda su área cae de `center` a
 El `.ox-iconbtn` tenía lo mismo en chico (1,5px), invisible de a uno y presente
 en toda la app.
 
+El mismo reset saca el borde: el UA le pone a todo `<button>` un `outset` de
+2px que sobrevive aunque el componente declare fondo y hairline, y toda tarjeta
+o tecla hecha con `<button>` salía biselada.
+
 El de humo lo vigila: recorre Piezas y falla si algún botón de solo ícono tiene
 el SVG corrido más de medio píxel o desbordando.
 
@@ -288,10 +330,20 @@ el SVG corrido más de medio píxel o desbordando.
 `.ox-section` con `__head` / `__title`. `.ox-sunken` para lo hundido.
 
 `.ox-list` + `.ox-listitem` con `__main` / `__title` / `__sub` / `__aside`.
-Las acciones van en `.ox-rowactions` (aparecen con el hover).
+Las acciones van en `.ox-rowactions` (aparecen con el hover o con el foco de
+teclado; el clic no las deja pegadas). En una `.ox-tr` también aparecen cuando
+el foco de teclado está en una de ellas: si no, tabular hasta el «Quitar» del
+carrito dejaba el botón enfocado pero invisible.
 
 `.ox-table` + `.ox-tr`; `.ox-td--num` alinea a la derecha con cifras tabulares,
-`.ox-td--tight` achica el padding.
+`.ox-td--tight` achica el padding. El `<th>` es sticky y por eso opaco: pinta
+`--ox-surface`, la superficie donde cayó la tabla, y no un plano fijo. Dentro de
+un `.ox-scroll` se clava con `top: -var(--ox-fade)`: el sticky se engancha al
+borde del contenido, y sin eso quedaba debajo del padding del esfumado con las
+filas pasando por arriba. Mientras está clavado, el scroller lleva
+`.is-stuck-head` y no esfuma arriba: la hairline ya es el límite. Una `.ox-tr`
+con `tabindex="0"` lleva el anillo de foco hacia adentro, pintado encima de las
+celdas.
 
 **`.ox-td--num` va también en el `<th>`, no solo en las celdas.** Si el
 encabezado no la lleva, el título se queda a la izquierda mientras los números
@@ -310,6 +362,12 @@ lo pide con `.ox-kv__v--wrap`. `.ox-stat` para una cifra grande (`__value` /
 
 `.ox-chip` (+ `--mono` / `--outline` / `--danger`) · `.ox-avatar` (+ `--lg`) ·
 `.ox-empty` (`__title` / `__text`) · `.ox-skeleton` · `.ox-iconcell`.
+
+`.ox-iconcell` es la celda de una **vitrina** de íconos (con su propio hover y
+su etiqueta). No va a la cabeza de una fila: adentro de un `.ox-listitem`, que
+ya tiene su hover, se lee como un botón suelto. Para eso Pharos tiene su baldosa,
+`.ph-lead`, en `css/pharos.css` —ahí viven las piezas propias de la app, con
+prefijo `ph-`—.
 
 `.ox-meter` + `.ox-meter__fill`, con `--ox-pct`. `--danger` lo pinta rojo,
 `--indeterminate` lo hace recorrer la pista.
@@ -345,7 +403,7 @@ Todos se portalean a `#ox-layer` y todos entran **y salen** animados.
 
 ```js
 Tooltip.init();                         // una vez, al arrancar
-Toast.show({ title, text, icon, tone, duration });
+Toast.show({ title, text, icon, tone, duration, action });  // action: { label, run }
 Toast.error(title, text);
 Menu.show(anchorEl, items, { align: 'end' });
 await Modal.show({ title, sub, body, actions, width, dismissible });
@@ -383,6 +441,40 @@ tick(el)                       // destella un valor que acaba de cambiar
 `exit()` es el más importante y el que más se olvida: sin él, todo lo que se va
 del DOM parpadea.
 
+### Lo que agrega Pharos
+
+Una app de datos reemplaza contenido después de cada consulta, y eso también
+tiene que moverse. Tres herramientas, según la escala del cambio:
+
+```js
+replaceHTML(el, html, { kind })  // un DATO que cambia: lo nuevo entra encima, desde .22
+setText(el, valor)               // lo mismo para un texto suelto (con tick)
+swap(el, html, { kind, montar }) // un BLOQUE que cambia de forma: relevo en el mismo lugar
+leave(el, { remove, collapse })  // una fila que se va; con collapse, lo de abajo se desliza
+```
+
+- **`replaceHTML`** es para cifras: un subtotal, una celda de la tabla. Compara
+  contra el HTML *normalizado* por el navegador (`<path/>` vuelve como
+  `<path></path>`): con la comparación cruda, todo lo que llevaba un SVG
+  «cambiaba» siempre y se volvía a fundir en cada llamada.
+- **`swap`** es para lo que cambia de forma: una lista que pasa a estado vacío,
+  el botón «Traer precios» que pasa a medidor, el nombre de la titlebar. Lo
+  viejo se termina de ir (in-out, 120 ms) y recién ahí entra lo nuevo, desde
+  cero. Si no había nada, entra sin esperar; si llega otro swap a mitad, gana el
+  último.
+- **`leave(…, { collapse: true })`** mide todo lo que viene debajo (hermanos y
+  hermanos de cada ancestro hasta el `.ox-scroll`), saca el nodo y hace viajar a
+  cada uno desde donde estaba (FLIP). Así el total del carrito, que vive fuera
+  de la tabla, también se desliza en vez de saltar.
+
+Y **`paint()` repinta por partes**: si la vista es la misma (no hubo
+navegación), anima solo el título, las acciones o el cuerpo que hayan cambiado.
+Antes fundía la vista entera desde .22 y el título, que casi nunca cambia,
+pestañeaba. Aun así, lo que se puede actualizar en su lugar se actualiza en su
+lugar: la estrella de favorito, el switch y las cifras del descuento, el botón
+del carrito de cada presentación. Un repintado mata los controles que el
+usuario tiene en la mano (el stepper que está aguantando, la cápsula que viaja).
+
 ### Clases de animación
 
 Entradas: `.ox-in-fade` · `.ox-in-rise` · `.ox-in-glide` · `.ox-in-pop`.
@@ -417,7 +509,7 @@ degrada sola.
 
 ```js
 paint(html)                        // innerHTML + monta íconos + cablea fades
-head({ title, sub, crumbs, actions })
+head({ title, sub, crumbs, actions, linea })
 empty({ icon, title, text, actions })
 esc(str)                           // TODO dato de afuera pasa por acá
 mark(state, shape) / status(state, opts)

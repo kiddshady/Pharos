@@ -41,7 +41,21 @@ const FRAMES = {
     { opacity: .3, transform: 'translateY(2px)' },
     { opacity: 1, transform: 'translateY(0)' },
   ],
+  /* Las dos de abajo arrancan de CERO y son para después de un relevo (swap):
+     lo viejo ya se fue entero, así que no hay nada que "refrescar" desde .22 —
+     un contenido nuevo que nace a un cuarto de luz se lee como un pestañeo. */
+  appear: [
+    { opacity: 0 },
+    { opacity: 1 },
+  ],
+  lift: [
+    { opacity: 0, transform: 'translateY(6px)' },
+    { opacity: 1, transform: 'translateY(0)' },
+  ],
 };
+
+/** in-out: la curva de lo que se va con alguien esperando detrás. */
+const EASE_BOTH = 'cubic-bezier(.65, 0, .35, 1)';
 
 function reduceMotion() {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -51,7 +65,7 @@ function reduceMotion() {
 export function animateIn(el, { kind = 'fade', duration, delay = 0 } = {}) {
   if (!el || reduceMotion() || typeof el.animate !== 'function') return null;
   running.get(el)?.cancel();
-  const ms = duration ?? ({ glide: 420, rise: 280, tick: 220 }[kind] || 180);
+  const ms = duration ?? ({ glide: 420, rise: 280, tick: 220, lift: 280 }[kind] || 180);
   const animation = el.animate(FRAMES[kind] || FRAMES.fade, {
     duration: ms,
     delay,
@@ -70,9 +84,23 @@ export function animateIn(el, { kind = 'fade', duration, delay = 0 } = {}) {
   return animation;
 }
 
+/**
+ * El HTML tal como lo va a devolver el navegador al leerlo. Comparar el texto
+ * de una plantilla con `innerHTML` directo falla aunque sean lo mismo: el
+ * navegador reescribe `<path/>` como `<path></path>`, normaliza espacios y
+ * comillas. Con la comparación cruda, todo lo que llevara un SVG «cambiaba»
+ * siempre: el nombre de la titlebar se volvía a fundir en cada toque del
+ * carrito, aunque dijera lo mismo.
+ */
+function normal(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  return t.innerHTML;
+}
+
 /** Reemplaza markup solo si cambió y materializa el resultado con suavidad. */
 export function replaceHTML(el, html, options) {
-  if (!el || el.innerHTML === html) return false;
+  if (!el || el.innerHTML === html || el.innerHTML === normal(html)) return false;
   el.innerHTML = html;
   animateIn(el, options);
   return true;
@@ -89,10 +117,80 @@ export function setText(el, value, options = { kind: 'tick' }) {
 }
 
 /**
+ * Relevo EN EL MISMO LUGAR: lo que hay se termina de ir y recién después entra
+ * lo nuevo. Es para contenido que cambia de FORMA —una lista que pasa a estado
+ * vacío, un botón que pasa a barra de progreso, el nombre de la titlebar—.
+ * replaceHTML, en cambio, pone lo nuevo encima de lo viejo en el mismo cuadro:
+ * perfecto para un número que cambia, pero con un bloque entero se lee como
+ * un salto.
+ *
+ * La salida va en in-out y corta (hay alguien esperando detrás: con ease-in la
+ * opacidad cae de golpe al final y el golpe se ve). Si no había nada, lo nuevo
+ * entra sin esperar. Si llega otro swap a mitad de camino gana el último, sin
+ * reiniciar la salida. `montar` corre apenas el HTML nuevo está puesto, antes
+ * del primer cuadro de la entrada (para los <i data-icon>, por ejemplo).
+ */
+const swaps = new WeakMap();
+const ENTRADA = { fade: 'appear', rise: 'lift', appear: 'appear', lift: 'lift' };
+
+export function swap(el, html, { kind = 'fade', out = 120, montar } = {}) {
+  if (!el) return Promise.resolve(false);
+  const pendiente = swaps.get(el);
+  if (pendiente) {
+    Object.assign(pendiente, { html, kind, montar });
+    return pendiente.promise;
+  }
+  if (el.innerHTML === html || el.innerHTML === normal(html)) return Promise.resolve(false);
+
+  const entrar = (h, k, m) => {
+    el.innerHTML = h;
+    m?.(el);
+    if (h) animateIn(el, { kind: ENTRADA[k] || 'appear' });
+  };
+
+  const vacio = !el.childElementCount && !el.textContent.trim();
+  if (vacio || reduceMotion() || typeof el.animate !== 'function') {
+    entrar(html, kind, montar);
+    return Promise.resolve(true);
+  }
+
+  const estado = { html, kind, montar };
+  estado.promise = (async () => {
+    // Si todavía estaba entrando, la salida arranca desde donde iba y no desde
+    // 1: cancelar primero lo haría saltar a opacidad plena por un cuadro.
+    const desde = Number(getComputedStyle(el).opacity);
+    running.get(el)?.cancel();
+    const salida = el.animate([{ opacity: desde }, { opacity: 0 }], {
+      duration: out, easing: EASE_BOTH, fill: 'forwards',
+    });
+    running.set(el, salida);
+    await salida.finished.catch(() => {});
+    swaps.delete(el);
+    // La entrada se pone ANTES de soltar la salida: si se soltara primero,
+    // habría un cuadro con lo nuevo a opacidad 1.
+    entrar(estado.html, estado.kind, estado.montar);
+    salida.cancel();
+    if (running.get(el) === salida) running.delete(el);
+    return true;
+  })();
+  swaps.set(el, estado);
+  return estado.promise;
+}
+
+/**
  * Salida para un nodo que va a dejar de existir. A diferencia de exit(), no
  * exige que el elemento haya nacido con una clase ox-in-*.
+ *
+ * `collapse`: lo que venía DEBAJO no salta a ocupar el hueco, se desliza. Sin
+ * esto, sacar una fila del medio de una lista era una salida suave seguida de
+ * un salto seco de todas las de abajo —y del total, que vive fuera de la
+ * tabla—. Se hace con FLIP (se mide antes, se saca, se mide después y cada uno
+ * viaja con transform desde donde estaba), así que no se anima ningún alto.
+ * Se mueve todo lo que sigue al nodo dentro de su scroll: sus hermanos y los
+ * hermanos de cada ancestro hasta ahí. Y como hay quien espera, la salida pasa
+ * a in-out.
  */
-export function leave(el, { kind = 'rise', duration = 150, remove = false } = {}) {
+export function leave(el, { kind = 'rise', duration = 150, remove = false, collapse = false } = {}) {
   if (!el) return Promise.resolve();
   if (reduceMotion() || typeof el.animate !== 'function') {
     if (remove) el.remove();
@@ -107,15 +205,36 @@ export function leave(el, { kind = 'rise', duration = 150, remove = false } = {}
     : { opacity: 0, transform: 'translateY(4px)' };
   const animation = el.animate([from, to], {
     duration,
-    easing: 'cubic-bezier(.55, 0, 1, .45)',
+    easing: collapse ? EASE_BOTH : 'cubic-bezier(.55, 0, 1, .45)',
     fill: 'forwards',
   });
   running.set(el, animation);
   return animation.finished.catch(() => {}).then(() => {
     if (running.get(el) === animation) running.delete(el);
-    if (remove) el.remove();
+    if (remove) {
+      const siguen = collapse ? debajoDe(el) : [];
+      const antes = siguen.map((n) => n.getBoundingClientRect().top);
+      el.remove();
+      siguen.forEach((n, i) => {
+        const dy = antes[i] - n.getBoundingClientRect().top;
+        if (Math.abs(dy) < 0.5) return;
+        n.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
+          duration: 240, easing: EASE,
+        });
+      });
+    }
     animation.cancel();
   });
+}
+
+/** Todo lo que sigue a `el` en su contenedor de scroll (o en su padre, si no hay). */
+function debajoDe(el) {
+  const tope = el.closest('.ox-scroll') || el.parentElement;
+  const out = [];
+  for (let n = el; n && n !== tope; n = n.parentElement) {
+    for (let s = n.nextElementSibling; s; s = s.nextElementSibling) out.push(s);
+  }
+  return out;
 }
 
 /**
@@ -177,10 +296,20 @@ export function scrollFade(el) {
     const slack = el.scrollHeight - el.clientHeight;
     if (slack <= 1) {                       // no hay nada que recortar
       el.classList.add('is-top', 'is-bottom');
+      el.classList.remove('is-stuck-head');
       return;
     }
     el.classList.toggle('is-top', el.scrollTop <= 1);
     el.classList.toggle('is-bottom', el.scrollTop >= slack - 1);
+    // Un encabezado de tabla clavado contra el borde: su tabla ya empezó arriba
+    // del borde y todavía no terminó. Ahí la línea es el límite y el fade sobra.
+    const top = el.getBoundingClientRect().top;
+    const stuck = [...el.querySelectorAll('.ox-table')].some((t) => {
+      if (t.closest('.ox-scroll') !== el) return false;
+      const r = t.getBoundingClientRect();
+      return r.top < top - 1 && r.bottom > top;
+    });
+    el.classList.toggle('is-stuck-head', stuck);
   };
 
   el.addEventListener('scroll', update, { passive: true });

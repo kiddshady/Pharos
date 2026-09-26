@@ -31,7 +31,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ok   ${n}`); } el
 const bail = (w, e) => { console.log(`ABORTADO ${w}`, e?.stack || e || ''); app.exit(3); };
 process.on('unhandledRejection', (e) => bail('rechazo', e));
 process.on('uncaughtException', (e) => bail('excepción', e));
-setTimeout(() => bail('timeout de 120s'), 120000);
+setTimeout(() => bail('timeout de 180s'), 180000);
 
 app.whenReady().then(async () => {
   require(path.join(ROOT, 'src', 'ipc.cjs')).register();
@@ -199,7 +199,8 @@ app.whenReady().then(async () => {
     return {
       capsula: seg.getAnimations({ subtree: true }).length,
       precio: unit.getAnimations().length,
-      totales: total.getAnimations().length,
+      // Los totales cambian cifra por cifra: la que anima es la de adentro.
+      totales: total.getAnimations({ subtree: true }).length,
     };
   })()`);
   ok('Particular → PAMI queda animándose, no cambia en un frame',
@@ -247,38 +248,71 @@ app.whenReady().then(async () => {
     ok('la titlebar muestra el producto abierto',
       (await js(`document.getElementById('titlebar-context').textContent.trim().length`)) > 0);
 
-    /* El callback del stepper repinta la ficha para recalcular toda la tabla.
-       Eso reemplaza el botón entre pointerdown y pointerup: la liberación cae
-       sobre el botón NUEVO y tiene que frenar el timer del control viejo. */
+    /* Cambiar el descuento NO repinta la ficha: el stepper que uno tiene
+       apretado sigue siendo el mismo nodo, el encabezado no se toca, y en la
+       tabla cambian solo las cifras. Antes cada flecha rehacía la vista entera
+       —pestañeaba completa y el control moría debajo del mouse—. Se espera a
+       que la cifra de la tabla cambie (el save + la actualización), no una
+       demora fija que dependa del disco. */
     await click('[data-pct="20"]');
     await sleep(500);
     const clickDescuento = await js(`(async () => {
-      const viejo = document.getElementById('st-descuento');
-      const antes = Number(viejo.querySelector('input').value);
-      const arriba = viejo.querySelector('[data-step="up"]');
-      arriba.dispatchEvent(new PointerEvent('pointerdown', {
+      const st = document.getElementById('st-descuento');
+      const cabeza = document.querySelector('#view > .ox-viewhead');
+      const th = () => document.querySelector('[data-k="h-final"]')?.textContent || '';
+      const antes = Number(st.querySelector('input').value);
+      const thAntes = th();
+      st.querySelector('[data-step="up"]').dispatchEvent(new PointerEvent('pointerdown', {
         bubbles: true, pointerId: 73, pointerType: 'mouse', button: 0, buttons: 1,
       }));
-
-      // Esperar el save + repintado, no una demora fija dependiente del disco.
-      for (let i = 0; i < 80 && document.getElementById('st-descuento') === viejo; i++) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      const nuevo = document.getElementById('st-descuento');
-      nuevo.querySelector('[data-step="up"]').dispatchEvent(new PointerEvent('pointerup', {
+      for (let i = 0; i < 30 && th() === thAntes; i++) await new Promise((r) => setTimeout(r, 10));
+      st.querySelector('[data-step="up"]').dispatchEvent(new PointerEvent('pointerup', {
         bubbles: true, pointerId: 73, pointerType: 'mouse', button: 0, buttons: 0,
       }));
       await new Promise((r) => setTimeout(r, 850));
       return {
         antes,
         despues: Number(document.querySelector('#st-descuento input').value),
-        reemplazado: nuevo !== viejo,
+        mismoStepper: document.getElementById('st-descuento') === st,
+        mismaCabeza: document.querySelector('#view > .ox-viewhead') === cabeza,
+        th: th(),
       };
     })()`);
-    ok('el stepper repinta la ficha durante la pulsación', clickDescuento.reemplazado === true,
-      JSON.stringify(clickDescuento));
+    ok('el stepper sobrevive al cambio (la ficha no se repinta)',
+      clickDescuento.mismoStepper && clickDescuento.mismaCabeza, JSON.stringify(clickDescuento));
     ok('un click corto en el descuento suma exactamente uno y se detiene',
       clickDescuento.despues === clickDescuento.antes + 1, JSON.stringify(clickDescuento));
+    ok('y la tabla ya lo muestra', clickDescuento.th.includes(`${clickDescuento.antes + 1}%`),
+      JSON.stringify(clickDescuento));
+
+    /* Escribir el número a mano también cuenta. Antes solo lo aplicaban las
+       flechas y los botones de porcentaje: escribir 25 y salir del campo no
+       cambiaba nada. */
+    const escrito = await js(`(async () => {
+      const input = document.querySelector('#st-descuento input');
+      input.value = '25';
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 400));
+      return { th: document.querySelector('[data-k="h-final"]')?.textContent || '',
+               guardado: (await window.onyx.settings.get()).descuento.porcentaje };
+    })()`);
+    ok('escribir el porcentaje a mano lo aplica', escrito.guardado === 25 && escrito.th.includes('25%'),
+      JSON.stringify(escrito));
+
+    /* El switch viaja: es el MISMO nodo antes y después, así su bolita se
+       desliza en vez de nacer ya del otro lado. */
+    const viaje = await js(`(async () => {
+      const sw = document.getElementById('sw-descuento');
+      sw.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const mismo = document.getElementById('sw-descuento') === sw;
+      const apagado = !sw.classList.contains('is-on');
+      sw.click();
+      await new Promise((r) => setTimeout(r, 400));
+      return { mismo, apagado, prendido: sw.classList.contains('is-on') };
+    })()`);
+    ok('el switch del descuento es el mismo nodo ida y vuelta',
+      viaje.mismo && viaje.apagado && viaje.prendido, JSON.stringify(viaje));
 
     /* El descuento, medido sobre lo que se VE. Leer el estado interno no
        probaría nada: el bug que importa es que la tabla muestre un número que
@@ -345,12 +379,19 @@ app.whenReady().then(async () => {
     // El favorito, por la UI: la estrella no puede abrir el producto de paso.
     await click('[data-view="buscar"]');
     await sleep(700);
+    await js(`(() => { window.__campo = document.getElementById('campo'); window.__lista = document.querySelector('#resultados-buscar .ox-list'); return true; })()`);
     await click('.ox-listitem [data-fav]');
     await sleep(900);
     const favs = await js(`window.onyx.col('favoritos').list().then((l) => l.length)`);
     ok('la estrella guarda en favoritos', favs > 0, `favoritos=${favs}`);
     ok('y la estrella no navega al producto',
       (await js(`!!document.getElementById('campo')`)), 'se fue de la vista Buscar');
+    /* Y no repinta nada: antes cada estrella volvía a montar la vista entera, y
+       el buscador nacía de nuevo (sin el foco ni lo que tenía el campo). */
+    ok('ni rehace el buscador ni la lista: solo se rellena la estrella',
+      await js(`document.getElementById('campo') === window.__campo
+        && document.querySelector('#resultados-buscar .ox-list') === window.__lista
+        && document.querySelector('.ox-listitem [data-fav]').classList.contains('is-fav')`));
 
     /* ── 4-ter. El carrito ──────────────────────────────────────────────────
        Agregar desde la ficha, y en el carrito decidir por fila: PAMI o
@@ -819,6 +860,57 @@ app.whenReady().then(async () => {
   ok('pero el contenido igual queda separado del filo',
     tarjetas.every((t) => t.aire >= 12), JSON.stringify(tarjetas.map((t) => t.aire)));
 
+  /* ── 8-octies. El encabezado de la tabla es del color de donde está ────────
+     (Traído de Onyx.) El <th> es sticky y por eso opaco. Pintaba --ox-bg fijo,
+     y dentro de una card quedaba una banda más oscura que sus propias filas.
+     Ahora lee --ox-surface, que declara cada plano donde pinta su fondo. Se
+     mide sobre la vista y en un clon dentro de una card armado acá. */
+  console.log('\n8-octies. El encabezado de la tabla es del color de donde está');
+  const fondos = await js(`(() => {
+    const t = document.querySelector('.ox-table');
+    if (!t) return { error: 'no hay tabla en la vitrina' };
+    const bg = (el) => getComputedStyle(el).backgroundColor;
+    const card = document.createElement('div');
+    card.className = 'ox-card';
+    card.appendChild(t.cloneNode(true));
+    t.after(card);
+    const out = {
+      vista: { th: bg(t.querySelector('th')), plano: bg(document.querySelector('.ox-main')) },
+      card: { th: bg(card.querySelector('th')), plano: bg(card) },
+    };
+    card.remove();
+    return out;
+  })()`);
+  ok('sobre la vista, el th pinta el fondo de la vista',
+    fondos.vista && fondos.vista.th === fondos.vista.plano, JSON.stringify(fondos));
+  ok('dentro de una card, el th pinta la card',
+    fondos.card && fondos.card.th === fondos.card.plano, JSON.stringify(fondos));
+
+  /* ── 8-nonies. Un ícono dentro de un dato chico va en el renglón ───────────
+     `.ox-meta` y `.ox-label` son texto en línea y todo svg es display:block:
+     el ícono se iba solo a un renglón de arriba. Pasaba en «de la red»,
+     «guardado hace…», «precios tomados…» y «Aplicar descuento». Se arman los
+     dos casos y se mide que ícono y texto compartan renglón. */
+  console.log('\n8-nonies. Un ícono dentro de un dato chico va en el renglón');
+  const renglon = await js(`(async () => {
+    const { Icons } = await import('./js/icons.js');
+    const caja = document.createElement('div');
+    caja.innerHTML = '<span class="ox-meta">' + Icons.svg('clock', 'ox-icon--sm') + ' guardado hace 2 h</span>'
+      + '<div><span class="ox-label">' + Icons.svg('porcentaje', 'ox-icon--sm') + ' Aplicar descuento</span></div>';
+    document.querySelector('.ox-main .ox-scroll').prepend(caja);
+    const medir = (el) => {
+      const i = el.querySelector('svg').getBoundingClientRect();
+      const r = document.createRange(); r.selectNodeContents(el.lastChild);
+      const t = r.getBoundingClientRect();
+      return { dy: +Math.abs((i.top + i.bottom) / 2 - (t.top + t.bottom) / 2).toFixed(1), alto: Math.round(el.getBoundingClientRect().height) };
+    };
+    const out = { meta: medir(caja.querySelector('.ox-meta')), label: medir(caja.querySelector('.ox-label')) };
+    caja.remove();
+    return out;
+  })()`);
+  ok('en .ox-meta el ícono va al lado del texto', renglon.meta.dy <= 2 && renglon.meta.alto < 20, JSON.stringify(renglon));
+  ok('y en .ox-label también', renglon.label.dy <= 2 && renglon.label.alto < 22, JSON.stringify(renglon));
+
   console.log('\n9. Las reglas de oro');
   const glifos = await js(`(() => {
     const malo = /[\\u2190-\\u21FF\\u2300-\\u23FF\\u25A0-\\u27BF\\u2B00-\\u2BFF\\uFE0F\\u{1F300}-\\u{1FAFF}]/u;
@@ -834,6 +926,90 @@ app.whenReady().then(async () => {
   ok('scrollbar propia', reglas.scrollbar);
   ok('::selection propia', reglas.seleccion);
   ok('focus ring propio (:focus-visible)', reglas.focus);
+
+  /* ── 9-bis. Ningún anillo de foco se corta ─────────────────────────────────
+     (Traído de Onyx.) El anillo de base.css sale 3.5px por fuera del elemento.
+     Si esos 3.5px caen afuera de algo que recorta (un .ox-scroll, el borde de
+     la ventana) o encima del canto de una superficie (una card, el carril del
+     segmentado), con Tab se ve cortado. Cada elemento se enfoca como con
+     teclado y se mide su anillo real (solo las sombras duras: una difusa es
+     elevación), así los que van hacia adentro cuentan cero. */
+  console.log('\n9-bis. Ningún anillo de foco se corta');
+  const AUDITAR_ANILLOS = `((scope) => {
+  if (!document.getElementById('aud-notr')) document.head.insertAdjacentHTML('beforeend', '<style id="aud-notr">*,*::before{transition:none!important}</style>');
+  const extent = (el) => {
+    el.focus({ focusVisible: true, preventScroll: true });
+    const s = getComputedStyle(el);
+    let m = 0;
+    for (const part of s.boxShadow.split(/,(?![^(]*\\))/)) {
+      if (part.includes('inset') || part.trim() === 'none') continue;
+      const nums = part.replace(/rgba?\\([^)]*\\)|oklch\\([^)]*\\)/g, '').match(/-?[\\d.]+px/g) || [];
+      const [x = 0, y = 0, blur = 0, spread = 0] = nums.map(parseFloat);
+      if (blur > 0) continue;
+      m = Math.max(m, spread + Math.max(Math.abs(x), Math.abs(y)));
+    }
+    if (s.outlineStyle !== 'none' && !/rgba\\(0, 0, 0, 0\\)/.test(s.outlineColor)) m = Math.max(m, parseFloat(s.outlineWidth) + parseFloat(s.outlineOffset));
+    el.blur();
+    return m;
+  };
+  const SEL = 'a[href],button:not([disabled]):not([tabindex="-1"]),input:not([disabled]):not([type=hidden]),select,textarea,[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+  const name = (el) => {
+    const id = el.id ? '#' + el.id : '';
+    const cls = [...el.classList].slice(0, 2).map((c) => '.' + c).join('');
+    const txt = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 24);
+    return el.tagName.toLowerCase() + id + cls + (txt ? ' «' + txt + '»' : '');
+  };
+  const out = [];
+  for (const el of scope.querySelectorAll(SEL)) {
+    if (el.closest('[inert],[hidden],[aria-hidden="true"]')) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const R = extent(el);
+    if (R <= 0.5) continue;
+    const boxes = [{ who: 'ventana', l: 0, t: 0, r: innerWidth, b: innerHeight }];
+    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (s.overflowX !== 'visible' || s.overflowY !== 'visible' || s.clipPath !== 'none' || /paint|strict|content/.test(s.contain)) {
+        const ar = a.getBoundingClientRect();
+        const l = ar.left + a.clientLeft; const t = ar.top + a.clientTop;
+        boxes.push({ who: name(a), l, t, r: l + a.clientWidth, b: t + a.clientHeight });
+      }
+    }
+    const e = 0.5;
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      const surf = (s.backgroundColor !== 'rgba(0, 0, 0, 0)' || s.boxShadow !== 'none') && parseFloat(s.borderTopLeftRadius) > 0;
+      if (!surf) continue;
+      const ar = a.getBoundingClientRect();
+      const g = [r.left - ar.left, r.top - ar.top, ar.right - r.right, ar.bottom - r.bottom];
+      if (g.some((x) => x < -e)) continue;
+      const det = g.map((x, i) => ['izq', 'arriba', 'der', 'abajo'][i] + ' ' + x.toFixed(1)).filter((_, i) => g[i] < R - e);
+      if (det.length) { out.push(name(el) + '  roza ' + name(a) + '  [' + det.join(', ') + ']'); break; }
+    }
+    for (const bx of boxes) {
+      const inside = r.left >= bx.l - e && r.top >= bx.t - e && r.right <= bx.r + e && r.bottom <= bx.b + e;
+      if (!inside) break;
+      const lados = [];
+      if (r.left - R < bx.l - e) lados.push('izq ' + (r.left - bx.l).toFixed(1));
+      if (r.top - R < bx.t - e) lados.push('arriba ' + (r.top - bx.t).toFixed(1));
+      if (r.right + R > bx.r + e) lados.push('der ' + (bx.r - r.right).toFixed(1));
+      if (r.bottom + R > bx.b + e) lados.push('abajo ' + (bx.b - r.bottom).toFixed(1));
+      if (lados.length) { out.push(name(el) + '  ← ' + bx.who + '  [' + lados.join(', ') + ']'); break; }
+    }
+  }
+  document.querySelectorAll('.ox-scroll, .ox-main, [class*="scroll"]').forEach((s) => { s.scrollTop = 0; s.scrollLeft = 0; });
+  return out;
+})(document)`;
+  for (const v of ['buscar', 'favoritos', 'carrito', 'historial', 'ajustes', 'piezas']) {
+    await click(`[data-view="${v}"]`);
+    await sleep(700);
+    const cortes = await js(AUDITAR_ANILLOS);
+    ok(`${v}: ningún anillo de foco se corta ni roza un canto`, cortes.length === 0, '\n      ' + cortes.join('\n      '));
+  }
+  await js(`document.getElementById('aud-notr')?.remove()`);
 
   /* Devolver todo como estaba: los ajustes y el historial se restauran con la
      foto del principio, y de los favoritos se borran SOLO los que agregó el

@@ -12,7 +12,7 @@ import { Tooltip, Toast, Modal } from './overlays.js';
 import Router from './router.js';
 import {
   initClickFlash, initScrollFades, leave, raf2,
-  bindSwitcher, bindStepper, replaceHTML, setText,
+  bindSwitcher, bindStepper, replaceHTML, setText, swap,
 } from './motion.js';
 import { esc, paint, head, empty, attempt, copy, colorToken, path } from './ui.js';
 import { fmtPesos, fmtBytes, relTime, plural } from './format.js';
@@ -146,26 +146,61 @@ const idDe = (slug) => String(slug || '')
 
 const esFavorito = (slug) => S.favoritos.some((f) => f.id === idDe(slug));
 
+/* Las estrellas se actualizan EN SU LUGAR. Antes cada click repintaba la vista
+   entera: en Buscar eso volvía a montar el buscador (se perdía el foco del
+   campo) y fundía la lista completa, y en la ficha hacía pestañear hasta el
+   título. Ahora solo se rellena o se vacía la estrella. */
+function pintarEstrellas(slug) {
+  const on = esFavorito(slug);
+  document.querySelectorAll(`[data-fav="${CSS.escape(slug)}"]`).forEach((b) => {
+    b.classList.toggle('is-fav', on);
+    b.dataset.tip = on ? 'Quitar de favoritos' : 'Guardar en favoritos';
+    // Un latido chico al prenderse, para que el cambio tenga causa y efecto.
+    if (on) b.querySelector('.ph-star')?.animate?.(
+      [{ transform: 'scale(.72)' }, { transform: 'scale(1)' }],
+      { duration: 280, easing: 'cubic-bezier(.16, 1, .3, 1)' },
+    );
+  });
+}
+
 async function toggleFavorito(slug) {
   const ref = S.refs.get(slug);
   if (!ref) return;
   const id = idDe(slug);
 
   if (esFavorito(slug)) {
-    if (Router.name === 'favoritos') {
+    const quitado = S.favoritos.find((f) => f.id === id);
+    const ultimo = S.favoritos.length === 1;
+    if (Router.name === 'favoritos' && !ultimo) {
       const fila = [...document.querySelectorAll('.ox-listitem')]
         .find((el) => el.dataset.open === slug);
-      await leave(fila, { kind: 'glide', remove: true });
+      await leave(fila, { kind: 'glide', remove: true, collapse: true });
     }
     await favoritos.remove(id);
     S.favoritos = S.favoritos.filter((f) => f.id !== id);
-    Toast.show({ title: 'Quitado de favoritos', text: ref.nombre, icon: 'estrella' });
+    if (Router.name === 'favoritos' && ultimo) aVacio(favoritosVacioHTML());
+    Toast.show({
+      title: 'Quitado de favoritos', text: ref.nombre, icon: 'estrella',
+      action: { label: 'Deshacer', run: () => restaurarFavorito(quitado) },
+    });
   } else {
     const guardado = await favoritos.save({ id, ...ref, guardadoEn: Date.now() });
     S.favoritos = [guardado, ...S.favoritos];
     Toast.show({ title: 'Guardado en favoritos', text: ref.nombre, icon: 'estrella' });
   }
+  pintarEstrellas(slug);
   updateChrome();
+}
+
+/** El Deshacer del toast: vuelve tal cual estaba, con su fecha de guardado. */
+async function restaurarFavorito(f) {
+  if (!f || S.favoritos.some((x) => x.id === f.id)) return;
+  const guardado = await favoritos.save(f);
+  S.favoritos = [...S.favoritos, guardado].sort((a, b) => (b.guardadoEn || 0) - (a.guardadoEn || 0));
+  recordarRef(guardado);
+  pintarEstrellas(guardado.slug);
+  updateChrome();
+  if (Router.name === 'favoritos') viewFavoritos();
 }
 
 async function anotarHistorial(entrada) {
@@ -270,19 +305,45 @@ async function agregarAlCarrito(indice) {
     icon: 'carrito',
   });
   updateChrome();
-  if (Router.name === 'producto') pintarProducto();
+  // Solo cambia el botón de esa fila: repintar la ficha la hacía pestañear
+  // entera por un carrito que se prende.
+  const btn = document.querySelector(`[data-carrito="${Number(indice)}"]`);
+  const en = enCarrito(ref.slug, p.descripcion);
+  if (btn && en) {
+    btn.classList.add('is-active');
+    btn.dataset.tip = `En el carrito (×${en.cantidad}) · agregar otra`;
+  }
 }
 
 async function quitarDelCarrito(id) {
-  const it = S.carrito.find((i) => i.id === id);
+  const indice = S.carrito.findIndex((i) => i.id === id);
+  const it = S.carrito[indice];
   if (!it) return;
-  if (Router.name === 'carrito') {
-    await leave(document.querySelector(`tr[data-item="${CSS.escape(id)}"]`), { kind: 'glide', remove: true });
+  const ultimo = S.carrito.length === 1;
+  if (Router.name === 'carrito' && !ultimo) {
+    await leave(document.querySelector(`tr[data-item="${CSS.escape(id)}"]`),
+      { kind: 'glide', remove: true, collapse: true });
   }
   S.carrito = S.carrito.filter((i) => i.id !== id);
   await guardarCarrito();
   updateChrome();
-  Toast.show({ title: 'Quitado del carrito', text: `${it.nombre} · ${it.presentacion}`, icon: 'carrito' });
+  if (Router.name === 'carrito') {
+    if (ultimo) aVacio(carritoVacioHTML());
+    else { pintarTotales(); pintarVigencia(); }
+  }
+  Toast.show({
+    title: 'Quitado del carrito', text: `${it.nombre} · ${it.presentacion}`, icon: 'carrito',
+    action: {
+      label: 'Deshacer',
+      run: async () => {
+        if (S.carrito.some((i) => i.id === it.id)) return;
+        S.carrito.splice(Math.min(indice, S.carrito.length), 0, it);
+        await guardarCarrito();
+        updateChrome();
+        if (Router.name === 'carrito') pintarCarrito();
+      },
+    },
+  });
 }
 
 /* Guardar en cada tecla del stepper sería una escritura por milisegundo de
@@ -364,7 +425,10 @@ async function refrescarCarrito() {
   const { cortar, fallos } = S.refresco;
   S.refresco = null;
   await guardarCarrito();
-  pintarCarrito();
+  // Las filas ya se actualizaron una por una mientras llegaban: repintar la
+  // tabla entera al final la hacía pestañear justo cuando uno mira el total.
+  pintarAccionRefresco();
+  pintarVigencia();
   updateChrome();
   Toast.show({
     title: cortar ? 'Actualización interrumpida' : 'Precios actualizados',
@@ -381,12 +445,22 @@ async function vaciarCarrito() {
     danger: true,
   });
   if (!ok) return;
-  await leave(document.querySelector('.ox-main > .ox-scroll'), { kind: 'rise', remove: true });
   S.carrito = [];
   await guardarCarrito();
   updateChrome();
-  Router.refresh();
+  if (Router.name === 'carrito') aVacio(carritoVacioHTML());
   Toast.show({ title: 'Carrito vacío', icon: 'carrito' });
+}
+
+/** Una lista que se quedó sin nada: se va entera y en su lugar entra el estado
+    vacío, en el mismo lugar y con relevo. Las acciones del encabezado que ya no
+    tienen sobre qué actuar (Vaciar, Actualizar precios) se van con ella.
+    Antes era una salida de la lista seguida de un repintado de la vista
+    entera, que volvía a hacer entrar el título que no había cambiado. */
+function aVacio(html) {
+  const acciones = document.querySelector('#view .ox-viewhead__actions');
+  if (acciones) swap(acciones, '');
+  return swap(document.querySelector('#view > .ox-scroll'), html, { kind: 'rise', montar: Icons.mount });
 }
 
 /* ══ Consultas ═══════════════════════════════════════════════════════════════
@@ -495,7 +569,7 @@ async function barrerPrecios(items) {
   }
 
   S.barrido = { hechos: 0, total: pendientes.length, cortar: false };
-  pintarBuscar();
+  pintarSlotBarrido();
 
   for (const it of pendientes) {
     if (S.barrido.cortar) break;
@@ -517,7 +591,7 @@ async function barrerPrecios(items) {
 
   const cortado = S.barrido.cortar;
   S.barrido = null;
-  pintarBuscar();
+  pintarSlotBarrido();
   Toast.show({
     title: cortado ? 'Barrido interrumpido' : 'Precios listos',
     text: cortado ? 'Quedó guardado lo que alcanzó a traer.' : 'Ya podés comparar la columna de precios.',
@@ -539,9 +613,9 @@ function origen(v = {}) {
 
 function botonFavorito(slug) {
   const on = esFavorito(slug);
-  return `<button class="ox-iconbtn ox-flashable" data-fav="${esc(slug)}"
+  return `<button class="ox-iconbtn ox-flashable${on ? ' is-fav' : ''}" data-fav="${esc(slug)}"
     data-tip="${on ? 'Quitar de favoritos' : 'Guardar en favoritos'}">
-    ${Icons.svg('estrella', on ? 'ox-icon--fill' : '')}</button>`;
+    ${Icons.svg('estrella', 'ph-star')}</button>`;
 }
 
 const cargando = () => `
@@ -646,7 +720,7 @@ function resultadosHTML() {
         recortado ? ` de ${vista.total}` : ''}</span>
       ${origen(vista)}
       <div class="ox-spacer"></div>
-      ${esProductos ? barridoHTML(vista) : ''}
+      ${esProductos ? `<div data-slot-barrido>${barridoHTML(vista)}</div>` : ''}
     </div>`;
 
   const filas = esProductos
@@ -678,6 +752,17 @@ function barridoHTML(vista) {
       ${Icons.svg('download', 'ox-icon--sm')} Traer precios (${faltan})</button>`;
 }
 
+/** El botón pasa a medidor (y de vuelta) con relevo, y es lo ÚNICO que cambia:
+    antes empezar y terminar el barrido volvía a pintar la lista completa, que
+    se fundía entera dos veces sin que ninguna fila hubiera cambiado. */
+function pintarSlotBarrido() {
+  if (Router.name !== 'buscar') return;
+  const slot = document.querySelector('[data-slot-barrido]');
+  const vista = S.expansion || S.busqueda;
+  if (!slot || !vista) { pintarBuscar(); return; }
+  swap(slot, barridoHTML(vista), { montar: Icons.mount });
+}
+
 /** Durante el barrido se conservan la lista y el medidor. Solo cambia la fila
     que acaba de llegar y el progreso avanza sobre el mismo nodo. */
 function pintarProgresoBarrido(slug) {
@@ -692,6 +777,10 @@ function pintarProgresoBarrido(slug) {
   }
 
   const control = document.querySelector('[data-barrido]');
+  // Con la ficha en caché la primera respuesta llega antes de que el relevo
+  // del botón termine: el medidor todavía no existe. Se le pasa el progreso al
+  // relevo en curso en vez de perderlo.
+  if (!control) { pintarSlotBarrido(); return; }
   const pct = Math.round((S.barrido.hechos / S.barrido.total) * 100);
   control?.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${pct}%`);
   setText(control?.querySelector('[data-barrido-cuenta]'), `${S.barrido.hechos}/${S.barrido.total}`);
@@ -704,12 +793,20 @@ function precioProductoHTML(it) {
   if (p?.fallo) {
     precio = '<span class="ox-meta ox-danger">sin datos</span>';
   } else if (p) {
+    /* Dos renglones como máximo, los mismos que el nombre y el laboratorio de
+       la izquierda: así la fila no crece cuando llega su precio. Con tres
+       (precio, lista, presentaciones), cada precio que llegaba en el barrido
+       empujaba hacia abajo todas las filas de debajo, una vez por producto. */
     const c = conDescuento(p.min);
+    const detalle = [
+      c.aplicado ? `lista ${esc(fmtPesos(p.min))}` : '',
+      p.cuantas > 1 ? `${p.cuantas} present.` : '',
+    ].filter(Boolean).join(' · ');
     precio = `
-      <div class="ox-col" style="gap:2px;align-items:flex-end">
-        <span class="ox-num ox-copyable" style="font-weight:var(--ox-w-medium)">${esc(fmtPesos(c.final))}</span>
-        ${c.aplicado ? `<span class="ox-meta ox-num">lista ${esc(fmtPesos(p.min))}</span>` : ''}
-        ${p.cuantas > 1 ? `<span class="ox-meta">desde · ${p.cuantas} present.</span>` : ''}
+      <div class="ox-col" style="align-items:flex-end">
+        <span class="ox-num ox-copyable" style="font-weight:var(--ox-w-medium)">${
+          p.cuantas > 1 ? '<span class="ox-meta">desde </span>' : ''}${esc(fmtPesos(c.final))}</span>
+        ${detalle ? `<span class="ox-meta ox-num">${detalle}</span>` : ''}
       </div>`;
   }
 
@@ -719,7 +816,7 @@ function precioProductoHTML(it) {
 function filaProducto(it) {
   return `
     <div class="ox-listitem" data-open="${esc(it.slug)}" data-resultado="${esc(it.slug)}" tabindex="0">
-      <span class="ox-iconcell">${Icons.svg('pildora', 'ox-icon--sm')}</span>
+      <span class="ph-lead">${Icons.svg('pildora')}</span>
       <div class="ox-listitem__main">
         <div class="ox-listitem__title ox-truncate ox-copyable">${esc(it.nombre)}</div>
         <div class="ox-listitem__sub ox-truncate">${esc(it.laboratorio || '—')}</div>
@@ -732,7 +829,7 @@ function filaProducto(it) {
 function filaIndice(it) {
   return `
     <div class="ox-listitem" data-expandir="${esc(it.mde)}:${esc(it.idD || it.idL)}" tabindex="0">
-      <span class="ox-iconcell">${Icons.svg(it.mde === 'lab' ? 'matraz' : 'pildora', 'ox-icon--sm')}</span>
+      <span class="ph-lead">${Icons.svg(it.mde === 'lab' ? 'matraz' : 'pildora')}</span>
       <div class="ox-listitem__main">
         <div class="ox-listitem__title ox-truncate ox-copyable">${esc(it.nombre)}</div>
         <div class="ox-listitem__sub">Ver todos sus productos</div>
@@ -817,7 +914,7 @@ function pintarProducto() {
           <span class="ox-section__title">${plural(f.presentaciones.length, 'Presentación', 'Presentaciones')}</span>
         </div>
         ${f.presentaciones.length
-          ? presentacionesHTML(f.presentaciones, slug)
+          ? `<div id="ficha-presentaciones">${presentacionesHTML(f.presentaciones, slug)}</div>`
           : empty({ icon: 'info', title: 'Sin presentaciones', text: 'El Manual no lista precios para este producto.' })}
       </div>
     </div>`);
@@ -854,13 +951,15 @@ function descuentoHTML(d) {
           </div>
 
           <div class="ox-spacer"></div>
-          <span class="ox-meta">${d.activo
-            ? `Mostrando precios con <b>${d.porcentaje}%</b> menos`
-            : 'Mostrando precios de lista'}</span>
+          <span class="ox-meta" id="desc-meta">${descuentoMetaHTML(d)}</span>
         </div>
       </div>
     </div>`;
 }
+
+const descuentoMetaHTML = (d) => (d.activo
+  ? `Mostrando precios con <b>${d.porcentaje}%</b> menos`
+  : 'Mostrando precios de lista');
 
 function presentacionesHTML(lista, slug) {
   const d = descuento();
@@ -871,7 +970,7 @@ function presentacionesHTML(lista, slug) {
         <tr>
           <th>Presentación</th>
           <th class="ox-td--num">${d.activo ? 'Lista' : 'Precio'}</th>
-          ${d.activo ? `<th class="ox-td--num">Con ${d.porcentaje}%</th><th class="ox-td--num">Ahorro</th>` : ''}
+          ${d.activo ? `<th class="ox-td--num" data-k="h-final">Con ${d.porcentaje}%</th><th class="ox-td--num">Ahorro</th>` : ''}
           <th class="ox-td--num">Vigente</th>
           <th class="ox-td--tight"></th>
         </tr>
@@ -884,12 +983,12 @@ function presentacionesHTML(lista, slug) {
             <tr class="ox-tr">
               <td>
                 <div class="ox-copyable">${esc(p.descripcion)}</div>
-                ${p.coberturas.length ? coberturasHTML(p.coberturas) : ''}
+                ${p.coberturas.length ? coberturasHTML(p.coberturas, i) : ''}
               </td>
               <td class="ox-td--num ox-num ${d.activo ? 'ox-dim' : 'ox-copyable'}">${esc(fmtPesos(p.precio))}</td>
               ${d.activo ? `
-                <td class="ox-td--num ox-num ox-copyable" style="font-weight:var(--ox-w-semi)">${esc(fmtPesos(c.final))}</td>
-                <td class="ox-td--num ox-num ox-dim2">−${esc(fmtPesos(c.ahorro))}</td>` : ''}
+                <td class="ox-td--num ox-num ox-copyable" style="font-weight:var(--ox-w-semi)" data-k="f${i}">${esc(fmtPesos(c.final))}</td>
+                <td class="ox-td--num ox-num ox-dim2" data-k="a${i}">−${esc(fmtPesos(c.ahorro))}</td>` : ''}
               <td class="ox-td--num ox-meta">${p.fecha ? esc(fechaCorta(p.fecha)) : '—'}</td>
               <td class="ox-td--tight">
                 <button class="ox-iconbtn ox-flashable${en ? ' is-active' : ''}" data-carrito="${i}"
@@ -904,16 +1003,16 @@ function presentacionesHTML(lista, slug) {
 
 /** Las coberturas de obra social de una presentación. `paga` es lo que pone el
     afiliado en el mostrador — el número que más se pregunta. */
-function coberturasHTML(coberturas) {
+function coberturasHTML(coberturas, fila) {
   return `
     <div class="ox-col" style="gap:6px;margin-top:8px">
-      ${coberturas.map((c) => {
+      ${coberturas.map((c, j) => {
         const paga = conDescuento(c.paga);
         return `
         <div class="ox-row" style="gap:8px;align-items:baseline;flex-wrap:wrap">
           <span class="ox-chip">${Icons.svg('escudo', 'ox-icon--sm')} ${esc(c.obra)}</span>
           ${c.detalle ? `<span class="ox-meta">${esc(c.detalle)}</span>` : ''}
-          ${c.paga != null ? `<span class="ox-meta">paga <b class="ox-num ox-copyable">${esc(fmtPesos(paga.final))}</b></span>` : ''}
+          ${c.paga != null ? `<span class="ox-meta">paga <b class="ox-num ox-copyable" data-k="c${fila}-${j}">${esc(fmtPesos(paga.final))}</b></span>` : ''}
           ${c.cubre != null ? `<span class="ox-meta">cubre <span class="ox-num">${esc(fmtPesos(c.cubre))}</span></span>` : ''}
         </div>`;
       }).join('')}
@@ -926,28 +1025,83 @@ function fechaCorta(iso) {
   return d && m ? `${d}/${m}` : iso;
 }
 
+/* El descuento cambia la ficha SIN repintarla. Antes cada click —el switch,
+   una flecha del stepper, un 15 %— volvía a pintar la vista entera: el switch
+   nacía ya prendido (la bolita no viajaba), la ficha pestañeaba completa, y el
+   stepper que uno tenía apretado moría debajo del mouse. Ahora el switch viaja,
+   el stepper sigue vivo, y en la tabla cambian solo las cifras. */
 function wireProducto() {
-  document.getElementById('sw-descuento')?.addEventListener('click', async () => {
+  const sw = document.getElementById('sw-descuento');
+  sw?.addEventListener('click', async () => {
     const d = descuento();
+    sw.classList.toggle('is-on', !d.activo);   // que viaje ya, no después del disco
     // Prender el switch sin porcentaje no cambiaría nada y parecería roto.
     await guardarDescuento({ activo: !d.activo, porcentaje: d.porcentaje || 10 });
-    pintarProducto();
+    actualizarFicha();
   });
 
+  /* `change` y no el callback del stepper: así también cuenta lo que se
+     escribe a mano (antes, escribir 25 y salir del campo no aplicaba nada). Las
+     flechas despachan su propio `change`, así que las dos vías pasan por acá. */
   const st = document.getElementById('st-descuento');
   if (st) {
-    bindStepper(st, async (valor) => {
-      const n = Number(valor) || 0;
+    bindStepper(st);
+    st.addEventListener('change', async (e) => {
+      const n = Math.min(100, Math.max(0, Math.round(Number(e.target.value)) || 0));
+      e.target.value = n;
       await guardarDescuento({ porcentaje: n, activo: n > 0 });
-      pintarProducto();
+      actualizarFicha();
     });
   }
 
   document.querySelectorAll('[data-pct]').forEach((b) =>
     b.addEventListener('click', async () => {
       await guardarDescuento({ porcentaje: Number(b.dataset.pct), activo: true });
-      pintarProducto();
+      actualizarFicha();
     }));
+}
+
+function actualizarFicha() {
+  if (Router.name !== 'producto' || !S.ficha?.presentaciones) return;
+  const d = descuento();
+
+  const sw = document.getElementById('sw-descuento');
+  if (sw) {
+    sw.classList.toggle('is-on', d.activo);
+    sw.dataset.tip = d.activo ? 'Volver a los precios de lista' : 'Aplicar el descuento a toda la ficha';
+  }
+  // El número se toca solo si otro lo cambió (un 15 %): si es el campo el que
+  // lo está cambiando, ya dice lo que tiene que decir.
+  const campo = document.querySelector('#st-descuento input');
+  if (campo && Number(campo.value) !== d.porcentaje) {
+    campo.value = d.porcentaje;
+    campo.dispatchEvent(new Event('input'));   // que las flechas se re-habiliten
+  }
+  replaceHTML(document.getElementById('desc-meta'), descuentoMetaHTML(d), { kind: 'tick' });
+
+  const tabla = document.getElementById('ficha-presentaciones');
+  if (tabla) morph(tabla, presentacionesHTML(S.ficha.presentaciones, Router.param));
+}
+
+/**
+ * Pone `html` en `el` tocando lo mínimo. Si las dos versiones tienen las mismas
+ * celdas marcadas con `data-k`, solo cambian esas —cada una con su tick— y el
+ * resto de la tabla no se entera. Si cambió la forma (aparecieron o se fueron
+ * columnas), se reemplaza entero con un fundido.
+ */
+function morph(el, html) {
+  const molde = document.createElement('template');
+  molde.innerHTML = html;
+  const nuevas = [...molde.content.querySelectorAll('[data-k]')];
+  const viejas = [...el.querySelectorAll('[data-k]')];
+  const misma = nuevas.length === viejas.length
+    && nuevas.every((n, i) => n.dataset.k === viejas[i].dataset.k);
+  if (!misma) {
+    replaceHTML(el, html, { kind: 'fade' });
+    Icons.mount(el);
+    return;
+  }
+  nuevas.forEach((n, i) => replaceHTML(viejas[i], n.innerHTML, { kind: 'tick' }));
 }
 
 /* ══ Vista: Favoritos ════════════════════════════════════════════════════════ */
@@ -958,20 +1112,22 @@ function viewFavoritos() {
       S.favoritos.length
         ? `<div class="ox-list">${S.favoritos.map((f) => `
             <div class="ox-listitem" data-open="${esc(f.slug)}" tabindex="0">
-              <span class="ox-iconcell">${Icons.svg('pildora', 'ox-icon--sm')}</span>
+              <span class="ph-lead">${Icons.svg('pildora')}</span>
               <div class="ox-listitem__main">
                 <div class="ox-listitem__title ox-truncate ox-copyable">${esc(f.nombre)}</div>
                 <div class="ox-listitem__sub ox-truncate">${esc(f.laboratorio || '—')} · guardado ${esc(relTime(f.guardadoEn))}</div>
               </div>
               <div class="ox-rowactions">${botonFavorito(f.slug)}</div>
             </div>`).join('')}</div>`
-        : empty({
-            icon: 'estrella',
-            title: 'Todavía no guardaste ninguno',
-            text: 'La estrella de cualquier producto lo deja acá para siempre.',
-          })
+        : favoritosVacioHTML()
     }</div>`);
 }
+
+const favoritosVacioHTML = () => empty({
+  icon: 'estrella',
+  title: 'Todavía no guardaste ninguno',
+  text: 'La estrella de cualquier producto lo deja acá para siempre.',
+});
 
 /* ══ Vista: Historial ════════════════════════════════════════════════════════ */
 
@@ -988,16 +1144,20 @@ function viewHistorial() {
       S.historial.length
         ? `<div class="ox-list">${S.historial.map((h) => `
             <div class="ox-listitem" data-rebuscar="${esc(h.modo)}:${esc(h.patron)}" tabindex="0">
-              <span class="ox-iconcell">${Icons.svg('search', 'ox-icon--sm')}</span>
+              <span class="ph-lead">${Icons.svg('search')}</span>
               <div class="ox-listitem__main">
                 <div class="ox-listitem__title ox-truncate ox-copyable">${esc(h.patron)}</div>
-                <div class="ox-listitem__sub">${esc(MODO_LABEL[h.modo] || h.modo)} · ${h.resultados} ${plural(h.resultados, 'resultado', 'resultados')}</div>
+                <div class="ox-listitem__sub">${esc(MODO_LABEL[h.modo] || h.modo)} · ${plural(h.resultados, 'resultado', 'resultados')}</div>
               </div>
               <div class="ox-listitem__aside"><span class="ox-meta">${esc(relTime(h.cuando))}</span></div>
             </div>`).join('')}</div>`
-        : empty({ icon: 'clock', title: 'Sin búsquedas todavía', text: 'Lo que busques va a quedar acá.' })
+        : historialVacioHTML()
     }</div>`);
 }
+
+const historialVacioHTML = () => empty({
+  icon: 'clock', title: 'Sin búsquedas todavía', text: 'Lo que busques va a quedar acá.',
+});
 
 /* ══ Vista: Carrito ══════════════════════════════════════════════════════════
    Una tabla donde cada fila decide lo suyo (cantidad, PAMI o particular,
@@ -1016,9 +1176,7 @@ function pintarCarrito() {
   paint(head({
     title: 'Carrito',
     sub: 'Lo que vas a comprar, y cuánto va a salir en el mostrador',
-    actions: n ? `${refrescoHTML()}
-      <button class="ox-btn ox-btn--ghost ox-flashable" data-action="vaciar-carrito">
-        ${Icons.svg('trash')} Vaciar</button>` : '',
+    actions: n ? accionesCarritoHTML() : '',
   }) + `<div class="ox-scroll ox-grow">${n ? carritoHTML() : carritoVacioHTML()}</div>`);
 
   wireCarrito();
@@ -1032,6 +1190,14 @@ function carritoVacioHTML() {
     actions: `<button class="ox-btn ox-btn--secondary ox-flashable" data-goto="buscar">
       ${Icons.svg('search')} Ir a buscar</button>`,
   });
+}
+
+/** Las acciones del encabezado. El control del refresco va en su propio lugar
+    para poder relevarlo solo, sin que el Vaciar de al lado se entere. */
+function accionesCarritoHTML() {
+  return `<div data-slot-refresco>${refrescoHTML()}</div>
+    <button class="ox-btn ox-btn--ghost ox-flashable" data-action="vaciar-carrito">
+      ${Icons.svg('trash')} Vaciar</button>`;
 }
 
 /** El control de "Actualizar precios": invita, informa o deja cortar. */
@@ -1068,7 +1234,7 @@ function carritoHTML() {
         </div>
         <span class="ox-meta">Corre en las filas con el tilde. Es el mismo porcentaje que en la ficha.</span>
         <div class="ox-spacer"></div>
-        ${vigenciaHTML()}
+        <div id="carrito-vigencia">${vigenciaHTML()}</div>
       </div>
     </div></div>
 
@@ -1099,6 +1265,10 @@ function vigenciaHTML() {
     ${Icons.svg('clock', 'ox-icon--sm')} precios tomados ${esc(relTime(viejo))}</span>`;
 }
 
+function pintarVigencia() {
+  swap(document.getElementById('carrito-vigencia'), vigenciaHTML());
+}
+
 function filaCarrito(it) {
   const id = esc(it.id);
   const tienePami = it.pami != null;
@@ -1109,7 +1279,7 @@ function filaCarrito(it) {
         <div class="ox-row" style="gap:8px;align-items:center;flex-wrap:wrap">
           <span class="ox-copyable" style="font-weight:var(--ox-w-medium);color:var(--ox-text)"
                 data-open="${esc(it.slug)}" data-tip="Abrir la ficha">${esc(it.nombre)}</span>
-          ${it.perdido ? `<span class="ox-chip ox-chip--danger">${Icons.svg('alert', 'ox-icon--sm')} ya no está en el Manual</span>` : ''}
+          <span data-cell="perdido">${perdidoHTML(it)}</span>
         </div>
         <div class="ox-meta">${esc(it.presentacion)}${it.laboratorio ? ` · ${esc(it.laboratorio)}` : ''}</div>
       </td>
@@ -1148,6 +1318,10 @@ function filaCarrito(it) {
     </tr>`;
 }
 
+const perdidoHTML = (it) => (it.perdido
+  ? `<span class="ox-chip ox-chip--danger">${Icons.svg('alert', 'ox-icon--sm')} ya no está en el Manual</span>`
+  : '');
+
 /** El precio por unidad y, cuando no es el de lista, el de lista debajo para
     que se vea de dónde salió. */
 function unitarioHTML(it) {
@@ -1174,28 +1348,28 @@ function totalesHTML() {
     <div class="ox-card"><div class="ox-card__body">
       <div class="ox-row" style="gap:36px;align-items:flex-end;flex-wrap:wrap">
         <div class="ox-stat">
-          <span class="ox-stat__value ox-copyable" style="font-size:var(--ox-fs-26)">${esc(fmtPesos(t.total))}</span>
+          <span class="ox-stat__value ox-copyable" style="font-size:var(--ox-fs-26)" data-k="total">${esc(fmtPesos(t.total))}</span>
           <span class="ox-stat__label">Total a pagar</span>
         </div>
         ${mixto ? `
           <div class="ox-stat">
-            <span class="ox-stat__value ox-copyable">${esc(fmtPesos(t.particular))}</span>
+            <span class="ox-stat__value ox-copyable" data-k="particular">${esc(fmtPesos(t.particular))}</span>
             <span class="ox-stat__label">Particular</span>
           </div>
           <div class="ox-stat">
-            <span class="ox-stat__value ox-copyable">${esc(fmtPesos(t.pami))}</span>
+            <span class="ox-stat__value ox-copyable" data-k="pami">${esc(fmtPesos(t.pami))}</span>
             <span class="ox-stat__label">Por PAMI</span>
           </div>` : ''}
         <div class="ox-stat">
-          <span class="ox-stat__value ox-dim">${esc(fmtPesos(t.lista))}</span>
+          <span class="ox-stat__value ox-dim" data-k="lista">${esc(fmtPesos(t.lista))}</span>
           <span class="ox-stat__label">A precio de lista</span>
         </div>
         <div class="ox-stat">
-          <span class="ox-stat__value ox-copyable">${esc(fmtPesos(t.ahorro))}</span>
+          <span class="ox-stat__value ox-copyable" data-k="ahorro">${esc(fmtPesos(t.ahorro))}</span>
           <span class="ox-stat__label">Te ahorrás</span>
         </div>
         <div class="ox-spacer"></div>
-        <span class="ox-meta">${plural(t.unidades, 'unidad', 'unidades')} en ${plural(S.carrito.length, 'ítem', 'ítems')}${
+        <span class="ox-meta" data-k="cuenta">${plural(t.unidades, 'unidad', 'unidades')} en ${plural(S.carrito.length, 'ítem', 'ítems')}${
           t.sinPrecio ? ` · ${t.sinPrecio} sin precio` : ''}</span>
       </div>
     </div></div>`;
@@ -1207,32 +1381,31 @@ function actualizarFila(it) {
   if (!tr) return;
   replaceHTML(tr.querySelector('[data-cell="unit"]'), unitarioHTML(it), { kind: 'tick' });
   replaceHTML(tr.querySelector('[data-cell="sub"]'), subtotalHTML(it), { kind: 'tick' });
+  swap(tr.querySelector('[data-cell="perdido"]'), perdidoHTML(it));
 }
 
+/** Los totales cambian cifra por cifra. Antes la tarjeta entera se volvía a
+    fundir desde abajo en cada cambio, y con el stepper aguantado —un cambio
+    cada 45 ms— quedaba titilando todo el tiempo que durara el aguante. */
 function pintarTotales() {
   const caja = document.getElementById('carrito-totales');
-  if (!caja) return;
-  replaceHTML(caja, totalesHTML(), { kind: 'rise' });
-  Icons.mount(caja);
+  if (caja) morph(caja, totalesHTML());
 }
 
 /** Cambia botón ↔ progreso una vez y, durante la descarga, mueve el medidor
     existente. Así no se reinicia su transición en cada producto. */
 function pintarAccionRefresco() {
   if (Router.name !== 'carrito') return;
-  const acciones = document.querySelector('.ox-viewhead__actions');
-  if (!acciones) return;
-  const control = acciones.querySelector('[data-refresco]');
+  const slot = document.querySelector('[data-slot-refresco]');
+  if (!slot) return;
+  const control = slot.querySelector('[data-refresco]');
   if (S.refresco && control) {
     const pct = Math.round((S.refresco.hechos / S.refresco.total) * 100);
     control.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${pct}%`);
     setText(control.querySelector('[data-refresco-cuenta]'), `${S.refresco.hechos}/${S.refresco.total}`);
     return;
   }
-  replaceHTML(acciones, `${refrescoHTML()}
-    <button class="ox-btn ox-btn--ghost ox-flashable" data-action="vaciar-carrito">
-      ${Icons.svg('trash')} Vaciar</button>`, { kind: 'rise' });
-  Icons.mount(acciones);
+  swap(slot, refrescoHTML(), { montar: Icons.mount });
 }
 
 /** Todos los listeners van sobre nodos que mueren con el repintado. */
@@ -1533,7 +1706,7 @@ function wireShell() {
     const fav = e.target.closest('[data-fav]');
     if (fav) {
       e.stopPropagation();   // la estrella vive dentro de una fila que abre el producto
-      toggleFavorito(fav.dataset.fav).then(() => Router.refresh());
+      toggleFavorito(fav.dataset.fav);   // se actualiza en su lugar, sin repintar
       return;
     }
 
@@ -1542,7 +1715,7 @@ function wireShell() {
 
     const quitar = e.target.closest('[data-quitar]');
     if (quitar) {
-      quitarDelCarrito(quitar.dataset.quitar).then(() => Router.refresh());
+      quitarDelCarrito(quitar.dataset.quitar);
       return;
     }
 
@@ -1613,11 +1786,10 @@ async function borrarHistorial() {
     danger: true,
   });
   if (!ok) return;
-  await leave(document.querySelector('.ox-main .ox-list'), { kind: 'rise', remove: true });
   S.historial = [];
   await attempt(() => api.doc.write(HISTORIAL, []));
   updateChrome();
-  Router.refresh();
+  if (Router.name === 'historial') aVacio(historialVacioHTML());
   Toast.show({ title: 'Historial vacío', icon: 'trash' });
 }
 
@@ -1662,9 +1834,12 @@ function updateChrome() {
     const nombre = Router.name === 'producto'
       ? (S.ficha?.nombre || S.refs.get(Router.param)?.nombre || '')
       : '';
-    replaceHTML(ctx, nombre
+    // Relevo y no reemplazo: al salir de la ficha el nombre se esfuma en vez de
+    // desaparecer, y de un producto a otro el viejo se va antes de que entre el
+    // nuevo, sin quedar los dos encimados en el mismo lugar.
+    swap(ctx, nombre
       ? `${Icons.svg('pildora', 'ox-icon--sm')}<span>${esc(nombre)}</span>`
-      : '', { kind: 'fade' });
+      : '');
   }
 
   const dir = S.info?.dataDir || '';

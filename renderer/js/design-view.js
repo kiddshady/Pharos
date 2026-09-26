@@ -230,6 +230,10 @@ export function designHTML() {
               <button class="ox-tab" data-value="2">Detalle <span class="ox-tab__count">12</span></button>
               <button class="ox-tab" data-value="3">Historial</button>
             </div>
+            <div class="ox-row" style="gap:6px">
+              <span class="ox-kbd">Ctrl</span><span class="ox-kbd">S</span>
+              <span class="ox-meta">una tecla, dibujada</span>
+            </div>
           </div>
         </div>`)}
 

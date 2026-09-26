@@ -138,21 +138,54 @@ export function path(ruta, { colas = 2 } = {}) {
  */
 export function paint(html) {
   const el = viewEl();
-  const habiaContenido = el.childElementCount > 0;
   const kind = el.dataset.motionKind || 'fade';
+  delete el.dataset.motionKind;
+  const antes = partes(el);
   el.innerHTML = html;
   Icons.mount(el);
   initScrollFades(el);
+
+  // Navegar: la vista entera entra sobre el eje del flujo.
+  if (kind === 'glide') { animateIn(el, { kind }); return el; }
   // La primera vista también entra, pero debajo del splash: cuando éste se
-  // esfuma ya está asentada. En las demás, la duración expresa la escala del
-  // cambio: navegación direccional; repintado local, apenas un fundido.
-  if (habiaContenido || kind === 'glide') animateIn(el, { kind });
-  delete el.dataset.motionKind;
+  // esfuma ya está asentada.
+  if (!antes) return el;
+
+  /* Repintar la MISMA vista (llegó la ficha, cambió un dato): se anima solo lo
+     que cambió. Antes se fundía la vista entera desde .22, encabezado incluido,
+     y como el título casi nunca cambia se veía pestañear —se leía como que la
+     vista se había recargado—. Si llega a mitad de la entrada de una
+     navegación, esa entrada sigue: no se la corta para empezar otra. */
+  const despues = partes(el);
+  if (!antes.head || !despues.head) { animateIn(el, { kind }); return el; }
+  if (despues.text !== antes.text) animateIn(despues.textEl, { kind: 'fade' });
+  if (despues.actions !== antes.actions) animateIn(despues.actionsEl, { kind: 'fade' });
+  if (despues.cuerpo !== antes.cuerpo) despues.cuerpos.forEach((c) => animateIn(c, { kind }));
   return el;
 }
 
-/** Encabezado de vista: migas, título, subtítulo y acciones a la derecha. */
-export function head({ title, sub, crumbs, actions = '' } = {}) {
+/** El encabezado y el cuerpo de la vista pintada, para comparar un repintado. */
+function partes(el) {
+  if (!el.childElementCount) return null;
+  const head = el.querySelector(':scope > .ox-viewhead');
+  const textEl = head?.querySelector('.ox-viewhead__text');
+  const actionsEl = head?.querySelector('.ox-viewhead__actions');
+  const cuerpos = [...el.children].filter((c) => c !== head);
+  return {
+    head, textEl, actionsEl, cuerpos,
+    text: textEl?.innerHTML,
+    actions: actionsEl?.innerHTML,
+    cuerpo: cuerpos.map((c) => c.innerHTML).join(''),
+  };
+}
+
+/**
+ * Encabezado de vista: migas, título, subtítulo y acciones a la derecha.
+ * `linea: true` lo cierra con su hairline en vez de cortar al aire — y el shell
+ * le apaga solo el esfumado de arriba al scroll de esa vista. Con inspector no
+ * hace falta pedirla: el shell la pone solo.
+ */
+export function head({ title, sub, crumbs, actions = '', linea = false } = {}) {
   const crumbHTML = crumbs
     ? `<nav class="ox-crumbs">${crumbs
         .map((c, i) => (i ? '<i data-icon="chevronRight"></i>' : '')
@@ -161,7 +194,7 @@ export function head({ title, sub, crumbs, actions = '' } = {}) {
         .join('')}</nav>`
     : '';
   return `
-    <div class="ox-viewhead">
+    <div class="ox-viewhead${linea ? ' ox-viewhead--line' : ''}">
       <div class="ox-viewhead__text ox-grow">
         ${crumbHTML}
         <div class="ox-viewhead__title">${esc(title)}</div>
