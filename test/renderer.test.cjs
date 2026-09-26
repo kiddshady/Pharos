@@ -1003,6 +1003,14 @@ app.whenReady().then(async () => {
   document.querySelectorAll('.ox-scroll, .ox-main, [class*="scroll"]').forEach((s) => { s.scrollTop = 0; s.scrollLeft = 0; });
   return out;
 })(document)`;
+  /* Sin foco en la ventana, :focus-visible no se aplica y todo anillo mide
+     cero: la auditoría pasaría sin haber medido nada. Así pasó acá la primera
+     vez que se trajo de Onyx (allá el foco venía de casualidad de otra prueba,
+     que en Pharos no existe). Se pide explícito y se exige. */
+  win.focus();
+  win.webContents.focus();
+  await sleep(150);
+  ok('la ventana tiene el foco (si no, no hay anillos que medir)', await js('document.hasFocus()'));
   for (const v of ['buscar', 'favoritos', 'carrito', 'historial', 'ajustes', 'piezas']) {
     await click(`[data-view="${v}"]`);
     await sleep(700);
