@@ -1,3 +1,10 @@
+# Todo texto viaja con LF; Windows lo lee igual y el diff no se llena de ruido.
+# Es la regla de Onyx: sin ella, con core.autocrlf=true, cada archivo tocado
+# avisaba «LF will be replaced by CRLF», y un checkout lo reescribía en CRLF de
+# verdad, con lo que cualquier reemplazo exacto sobre ese texto dejaba de
+# coincidir. Va PRIMERO: las reglas de abajo la pisan donde hace falta.
+* text=auto eol=lf
+
 # Los fixtures son respuestas REALES del sitio, guardadas con sus bytes
 # originales en ISO-8859-1. Si git les normaliza los finales de línea dejan de
 # ser lo que alfabeta.net manda, y el test pasa a probar otra cosa.
