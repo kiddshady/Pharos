@@ -66,14 +66,14 @@ ok('y aparta el archivo ilegible en vez de perderlo',
 console.log('\n4. Ajustes');
 const base = await store.loadSettings();
 ok('el primer arranque escribe los defaults', base.schema === store.SCHEMA && fs.existsSync(store.SETTINGS_FILE));
-const parche = await store.saveSettings({ modo: 'droga' });
+const parche = await store.saveSettings({ historialMax: 15 });
 ok('guardar un parche no pisa el resto',
-  parche.modo === 'droga' && parche.cacheHoras === store.DEFAULT_SETTINGS.cacheHoras);
+  parche.historialMax === 15 && parche.cacheHoras === store.DEFAULT_SETTINGS.cacheHoras);
 // Una clave nueva del código tiene que aparecer en un archivo viejo.
-await store.writeJSON(store.SETTINGS_FILE, { schema: store.SCHEMA, modo: 'laboratorio' });
+await store.writeJSON(store.SETTINGS_FILE, { schema: store.SCHEMA, historialMax: 15 });
 const completado = await store.loadSettings();
 ok('las claves nuevas se completan solas',
-  'cacheHoras' in completado && 'descuento' in completado && completado.modo === 'laboratorio');
+  'cacheHoras' in completado && 'descuento' in completado && completado.historialMax === 15);
 
 console.log('\n5. Colección');
 const col = store.collection('favoritos');

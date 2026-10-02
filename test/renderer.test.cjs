@@ -126,21 +126,23 @@ app.whenReady().then(async () => {
   ok('están los tres índices',
     (await js(`document.querySelectorAll('#seg-modo .ox-segmented__opt').length`)) === 3);
 
-  /* Cambiar de índice tiene que hacer DOS cosas: cambiar la pista del campo y
-     quedar guardado. Probar solo que la cápsula se mueve dejaría pasar un
-     cambio que no persiste, que es el bug que se nota al día siguiente. */
-  await click('#seg-modo [data-value="droga"]');
+  /* El buscador arranca SIEMPRE en droga: el índice no se guarda entre
+     sesiones. Y cambiar de índice tiene que mover la cápsula y la pista del
+     campo a la vez. */
+  let cap = await capsula('#seg-modo');
+  ok('arranca en "Droga", con la cápsula centrada', cap && cap.txt === 'Droga' && cap.desfase <= 1, JSON.stringify(cap));
+  ok('y su pista habla de drogas',
+    (await js(`document.getElementById('campo').placeholder`)).includes('droga'));
+  await click('#seg-modo [data-value="producto"]');
   await sleep(600);
   ok('la pista del campo sigue al índice',
-    (await js(`document.getElementById('campo').placeholder`)).includes('ibuprofeno'));
-  ok('el índice elegido persiste en disco',
-    (await js(`window.onyx.settings.get().then((s) => s.modo)`)) === 'droga');
-  let cap = await capsula('#seg-modo');
-  ok('la cápsula cae centrada sobre "Droga"', cap && cap.txt === 'Droga' && cap.desfase <= 1, JSON.stringify(cap));
-  await click('#seg-modo [data-value="producto"]');
+    (await js(`document.getElementById('campo').placeholder`)).includes('comercial'));
+  cap = await capsula('#seg-modo');
+  ok('la cápsula cae centrada sobre "Producto"', cap && cap.txt === 'Producto' && cap.desfase <= 1, JSON.stringify(cap));
+  await click('#seg-modo [data-value="droga"]');
   await sleep(500);
   cap = await capsula('#seg-modo');
-  ok('y vuelve centrada sobre "Producto"', cap && cap.txt === 'Producto' && cap.desfase <= 1, JSON.stringify(cap));
+  ok('y vuelve centrada sobre "Droga"', cap && cap.txt === 'Droga' && cap.desfase <= 1, JSON.stringify(cap));
 
   console.log('\n3. Todas las vistas montan');
   for (const v of ['favoritos', 'historial', 'ajustes', 'buscar']) {
@@ -235,6 +237,9 @@ app.whenReady().then(async () => {
   } else {
     ok('la consulta trae productos', sonda.n > 0, JSON.stringify(sonda));
 
+    // Ibupirac es una marca: el buscador arranca en droga, así que se cambia.
+    await click('#seg-modo [data-value="producto"]');
+    await sleep(400);
     await js(`(() => { document.getElementById('campo').value = 'ibupirac'; return true; })()`);
     await click('[data-action="buscar"]');
     await sleep(2600);

@@ -90,6 +90,9 @@ const S = {
   busqueda: null,
   expansion: null,
   cargando: false,
+  /** El índice del buscador. No se guarda: cada arranque vuelve a droga, que
+      es la búsqueda que junta todas las marcas para comparar. */
+  modo: 'droga',
 
   /** Ficha del producto abierto, y los precios que se hayan traído para
       comparar. En memoria: el disco ya tiene su propio caché. */
@@ -475,10 +478,12 @@ function aVacio(html) {
 
 const MODO_LABEL = { producto: 'Producto', droga: 'Droga', laboratorio: 'Laboratorio' };
 
+/* Sin ejemplos: un nombre de muestra se lee como sugerencia, y lo que hace
+   falta es decir QUÉ se escribe en cada índice. */
 const PLACEHOLDER = {
-  producto: 'Ibupirac, Amoxidal, Sertal…',
-  droga: 'ibuprofeno, amoxicilina, losartán…',
-  laboratorio: 'Bagó, Roemmers, Elea…',
+  producto: 'Nombre comercial del medicamento…',
+  droga: 'Nombre de la droga…',
+  laboratorio: 'Nombre del laboratorio…',
 };
 
 async function buscar(patron, { forzar = false } = {}) {
@@ -488,7 +493,7 @@ async function buscar(patron, { forzar = false } = {}) {
     return;
   }
 
-  const modo = S.settings.modo || 'producto';
+  const modo = S.modo;
   S.cargando = true;
   S.expansion = null;
   if (Router.name === 'buscar') pintarBuscar(termino); else Router.go('buscar');
@@ -669,7 +674,7 @@ function pintarBuscar(valorForzado) {
 }
 
 function buscadorHTML(valor) {
-  const modo = S.settings.modo || 'producto';
+  const modo = S.modo;
   return `
     <div class="ox-col" style="gap:14px;margin-bottom:24px">
       <div class="ox-segmented" id="seg-modo" style="align-self:flex-start">
@@ -848,8 +853,8 @@ function filaIndice(it) {
 function wireBuscar(zona) {
   const seg = zona.querySelector('#seg-modo');
   if (seg) {
-    bindSwitcher(seg, async (valor) => {
-      S.settings = await api.settings.save({ modo: valor });
+    bindSwitcher(seg, (valor) => {
+      S.modo = valor;
       // El placeholder cambia con el índice; lo escrito se respeta.
       const campo = document.getElementById('campo');
       if (campo) campo.placeholder = PLACEHOLDER[valor];
@@ -1741,7 +1746,8 @@ function wireShell() {
       const corte = crudo.indexOf(':');
       const modo = crudo.slice(0, corte);
       const patron = crudo.slice(corte + 1);
-      api.settings.save({ modo }).then((s) => { S.settings = s; buscar(patron); });
+      S.modo = modo;
+      buscar(patron);
       return;
     }
 

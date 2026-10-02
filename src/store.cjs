@@ -52,9 +52,6 @@ const DEFAULT_SETTINGS = {
       entre no maltratar el servidor ajeno y no mostrar un precio viejo. */
   cacheHoras: 12,
 
-  /** El índice en el que se buscó por última vez, para no reelegirlo siempre. */
-  modo: 'producto',
-
   /** Cuántas búsquedas recuerda el historial. */
   historialMax: 40,
 };
