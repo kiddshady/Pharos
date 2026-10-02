@@ -40,3 +40,54 @@
    Su lugar existe siempre para poder aparecer con relevo cuando un refresco lo
    descubre, pero vacío no ocupa: si no, dejaba el hueco del gap del renglón. */
 [data-cell="perdido"]:empty { display: none; }
+
+/* ── Un ícono que se pone a trabajar ─────────────────────────────────────────
+   El botón que dispara algo largo (buscar actualizaciones) no se reemplaza por
+   un spinner: SU ícono se convierte en el spinner, en el mismo lugar. Así el
+   botón no cambia de tamaño ni de sitio, y el cambio se lee como causa y
+   efecto en vez de como un parpadeo. Los dos íconos están siempre, apilados en
+   la misma celda; se cruzan con opacidad y un giro chico. */
+.ph-ocupable { display: inline-grid; width: 14px; height: 14px; flex: 0 0 auto; }
+.ph-ocupable > .ox-icon {
+  grid-area: 1 / 1;
+  transition: opacity var(--ox-t-2) var(--ox-ease-soft), transform var(--ox-t-2) var(--ox-ease);
+}
+.ph-ocupable > .ox-icon:last-child { opacity: 0; transform: scale(.6); }
+.ph-ocupable.is-ocupado > .ox-icon:first-child { opacity: 0; transform: rotate(-120deg) scale(.6); }
+.ph-ocupable.is-ocupado > .ox-icon:last-child { opacity: 1; transform: none; }
+
+/* ── La caja de actualizaciones ──────────────────────────────────────────────
+   La fila de acciones tiene SIEMPRE el alto de un botón, aunque muestre la
+   barra de descarga (17 px): si no, cada cambio de fase empujaba la nota de
+   abajo. */
+.ph-update-accion { gap: 12px; align-items: center; margin-top: 16px; flex-wrap: wrap; min-height: 30px; }
+.ph-update-detalle { margin-top: var(--ox-2); }
+
+/* Los lugares donde un botón pasa a medidor viven a la derecha de su fila.
+   Alineados al final también por dentro: así el calco del relevo deja lo que
+   se va en su lugar aunque lo nuevo tenga otro ancho. */
+[data-slot-barrido], [data-slot-refresco] { display: flex; justify-content: flex-end; }
+
+/* ── El indicador del rail ───────────────────────────────────────────────────
+   Uno solo, que VIAJA al ítem activo (app.js, moverIndicadorRail) en vez de
+   encogerse en uno y crecer en otro. Reemplaza al ::before de cada ítem. */
+.ox-navitem::before { content: none; }
+.ph-rail-ind {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 16px;
+  border-radius: var(--ox-r-pill);
+  background: var(--ox-accent);
+  pointer-events: none;
+  transform: translate(var(--ind-x, 0), var(--ind-y, 0)) scaleY(0);
+  transition: transform var(--ox-t-3) var(--ox-ease), opacity var(--ox-t-2) var(--ox-ease-soft);
+  opacity: 0;
+}
+.ph-rail-ind.is-on { opacity: 1; transform: translate(var(--ind-x, 0), var(--ind-y, 0)); }
+.ph-rail-ind.is-quieto { transition: none; }
+
+/* La pista del buscador se apaga para cambiar de texto (app.js, cambiarPista). */
+.ox-input::placeholder { transition: color var(--ox-t-1) var(--ox-ease-soft); }
+.ph-pista-muda::placeholder { color: transparent; }

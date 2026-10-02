@@ -6,7 +6,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { Icons } from './icons.js';
-import { exit, scrollFade } from './motion.js';
+import { exit, sacarDeslizando, scrollFade } from './motion.js';
 
 const GAP = 8;      // separación entre el overlay y su ancla
 const EDGE = 10;    // margen mínimo contra el borde de la ventana
@@ -151,7 +151,8 @@ const Toast = (() => {
 
     ensure().appendChild(el);
 
-    const close = () => exit(el, { fallback: 260 });
+    // Al irse, los de arriba se deslizan a ocupar su lugar en vez de caer.
+    const close = () => exit(el, { fallback: 260, sacar: sacarDeslizando });
     el.querySelector('[data-close]').addEventListener('click', close);
     // action: { label, run } → un botón adentro del toast (Deshacer, Ver…). Al
     // apretarlo el toast se cierra y corre `run`. Es lo que permite que una

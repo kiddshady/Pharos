@@ -7,7 +7,7 @@
 
 import { Icons } from './icons.js';
 import { Toast } from './overlays.js';
-import { animateIn, initScrollFades } from './motion.js';
+import { animateIn, calcar, initScrollFades } from './motion.js';
 
 /** El contenedor de la vista activa. Lazy: no asume cuándo corre este módulo. */
 let _view = null;
@@ -140,43 +140,28 @@ export function paint(html) {
   const el = viewEl();
   const kind = el.dataset.motionKind || 'fade';
   delete el.dataset.motionKind;
-  const antes = partes(el);
+
+  /* Repintar la MISMA vista (llegó la ficha, cambió un dato) es el mismo
+     fundido que navegar: lo de antes pasa a un calco opaco encima y se
+     esfuma, y lo nuevo está entero y quieto debajo. Lo que no cambió (el
+     título, casi siempre) es idéntico en las dos capas, así que no se mueve
+     ni un píxel; solo se funde lo distinto. Antes se animaban las partes que
+     cambiaban arrancando de 22 % de opacidad, y eso se leía como un pestañeo.
+     Al navegar, el router ya se llevó la vista vieja: acá llega vacía.
+     Si la vista se calcó hace un instante (una ficha guardada llega a los
+     pocos ms de navegar), el calco de recién todavía la tapa casi entera: lo
+     nuevo va directo debajo. Otro calco en el medio dejaba ver un instante el
+     estado intermedio —encabezado sin cuerpo— y el brillo bajaba de más. */
+  const recien = performance.now() - (el.__calcadoEn ?? -Infinity) < 60;
+  if (kind !== 'glide' && !recien) calcar(el);
   el.innerHTML = html;
   Icons.mount(el);
   initScrollFades(el);
 
-  // Navegar: la vista entera entra sobre el eje del flujo.
-  if (kind === 'glide') { animateIn(el, { kind }); return el; }
-  // La primera vista también entra, pero debajo del splash: cuando éste se
-  // esfuma ya está asentada.
-  if (!antes) return el;
-
-  /* Repintar la MISMA vista (llegó la ficha, cambió un dato): se anima solo lo
-     que cambió. Antes se fundía la vista entera desde .22, encabezado incluido,
-     y como el título casi nunca cambia se veía pestañear —se leía como que la
-     vista se había recargado—. Si llega a mitad de la entrada de una
-     navegación, esa entrada sigue: no se la corta para empezar otra. */
-  const despues = partes(el);
-  if (!antes.head || !despues.head) { animateIn(el, { kind }); return el; }
-  if (despues.text !== antes.text) animateIn(despues.textEl, { kind: 'fade' });
-  if (despues.actions !== antes.actions) animateIn(despues.actionsEl, { kind: 'fade' });
-  if (despues.cuerpo !== antes.cuerpo) despues.cuerpos.forEach((c) => animateIn(c, { kind }));
+  // El arranque: la primera vista entra sobre el eje del flujo, debajo del
+  // splash; cuando éste se esfuma ya está asentada.
+  if (kind === 'glide') animateIn(el, { kind });
   return el;
-}
-
-/** El encabezado y el cuerpo de la vista pintada, para comparar un repintado. */
-function partes(el) {
-  if (!el.childElementCount) return null;
-  const head = el.querySelector(':scope > .ox-viewhead');
-  const textEl = head?.querySelector('.ox-viewhead__text');
-  const actionsEl = head?.querySelector('.ox-viewhead__actions');
-  const cuerpos = [...el.children].filter((c) => c !== head);
-  return {
-    head, textEl, actionsEl, cuerpos,
-    text: textEl?.innerHTML,
-    actions: actionsEl?.innerHTML,
-    cuerpo: cuerpos.map((c) => c.innerHTML).join(''),
-  };
 }
 
 /**

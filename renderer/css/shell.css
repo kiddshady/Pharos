@@ -53,6 +53,9 @@
   transform: translateX(-50%);
   display: flex;
   align-items: center;
+  /* Centrado también por dentro: en un relevo, el calco del nombre que se va
+     copia este acomodo y queda quieto aunque el nombre nuevo sea más ancho. */
+  justify-content: center;
   gap: var(--ox-2);
   font-size: var(--ox-fs-11);
   color: var(--ox-text-3);
@@ -120,7 +123,7 @@
    de foco del primer y del último ítem se cortaba contra ese borde. Arriba es
    además el respiro entre el botón principal y la navegación, que iban
    pegados. (El esfumado no molesta: en reposo, .is-top lo apaga.) */
-.ox-rail__nav { flex: 1 1 auto; min-height: 0; padding: var(--ox-2) var(--ox-3) var(--ox-1); }
+.ox-rail__nav { position: relative; flex: 1 1 auto; min-height: 0; padding: var(--ox-2) var(--ox-3) var(--ox-1); }
 /* Abajo el nav muere contra la línea del pie, no al aire: ahí no va esfumado.
    Con :has(), si una app se queda sin pie el fade vuelve solo. */
 .ox-rail__nav:has(~ .ox-rail__foot) { --ox-fade-bottom: 0px; }

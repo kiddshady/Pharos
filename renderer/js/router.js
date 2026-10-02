@@ -10,6 +10,8 @@
    la app se degrada sola después de un rato de uso.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+import { calcar } from './motion.js';
+
 const routes = new Map();
 const listeners = new Set();
 
@@ -72,7 +74,10 @@ export function go(name, param = null) {
   document.querySelectorAll('.ox-navitem').forEach((b) =>
     b.classList.toggle('is-active', b.dataset.view === navKey));
 
-  if (host) host.dataset.motionKind = 'glide';
+  // Con una vista yéndose, la nueva no anima nada: el relevo lo hace el calco.
+  // Sin vista anterior (el arranque) entra sobre el eje del flujo.
+  const saliente = host ? calcar(host) : null;
+  if (host && !saliente) host.dataset.motionKind = 'glide';
   route.view(param);
 
   listeners.forEach((fn) => fn({ ...current }, from));

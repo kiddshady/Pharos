@@ -106,75 +106,134 @@ export function replaceHTML(el, html, options) {
   return true;
 }
 
-/** Actualiza una etiqueta sin hacer parpadear los valores que no cambiaron. */
-export function setText(el, value, options = { kind: 'tick' }) {
+/** Actualiza una etiqueta sin hacer parpadear los valores que no cambiaron.
+    Por defecto el valor nuevo se escribe en el lugar y destella en el acento
+    (`tick`), sin apagarse: antes arrancaba de 30 % de opacidad, y un número
+    que cambia seguido —el stepper apretado— parpadeaba sin parar. Con
+    `options = false` no hace ni eso: es para un progreso, que se mueve varias
+    veces por segundo. Con `{ kind }` hace esa entrada de animateIn. */
+export function setText(el, value, options = 'valor') {
   if (!el) return false;
   const text = String(value ?? '');
   if (el.textContent === text) return false;
   el.textContent = text;
-  animateIn(el, options);
+  if (options === 'valor') { if (!reduceMotion()) tick(el); }
+  else if (options) animateIn(el, options);
+  return true;
+}
+
+/** Lo mismo que setText para un valor con markup (un precio con su unidad):
+    se reescribe en el lugar y destella en el acento, sin apagarse. */
+export function cambiarValor(el, html) {
+  if (!el || el.innerHTML === html || el.innerHTML === normal(html)) return false;
+  el.innerHTML = html;
+  if (!reduceMotion()) tick(el);
   return true;
 }
 
 /**
- * Relevo EN EL MISMO LUGAR: lo que hay se termina de ir y recién después entra
- * lo nuevo. Es para contenido que cambia de FORMA —una lista que pasa a estado
- * vacío, un botón que pasa a barra de progreso, el nombre de la titlebar—.
- * replaceHTML, en cambio, pone lo nuevo encima de lo viejo en el mismo cuadro:
- * perfecto para un número que cambia, pero con un bloque entero se lee como
- * un salto.
+ * Relevo de un bloque chico EN EL LUGAR: lo viejo se esfuma en un calco
+ * encima (que copia el acomodo del contenedor, así que no se mueve mientras se
+ * va) y lo nuevo asoma desde cero cuando lo viejo ya va por un tercio.
  *
- * La salida va en in-out y corta (hay alguien esperando detrás: con ease-in la
- * opacidad cae de golpe al final y el golpe se ve). Si no había nada, lo nuevo
- * entra sin esperar. Si llega otro swap a mitad de camino gana el último, sin
- * reiniciar la salida. `montar` corre apenas el HTML nuevo está puesto, antes
- * del primer cuadro de la entrada (para los <i data-icon>, por ejemplo).
+ * Es lo que reemplaza a `replaceHTML` con bloques. Aquel ponía lo nuevo en el
+ * mismo cuadro arrancando de 18 % de opacidad: el bloque entero se apagaba y
+ * se volvía a prender, también lo que no había cambiado. Medido en la caja de
+ * actualizaciones: dos caídas a 18 % por cada «Buscar».
+ *
+ * Es para cosas chicas sobre el mismo fondo (un estado, una fila de acciones,
+ * una lista de resultados); una vista entera va con el fundido del router.
+ * Los textos sueltos se envuelven en un <span> para poder animarlos.
+ * `escalonar`: un selector de lo que entra escalonado (las filas de una lista)
+ * en vez de todo junto.
  */
-const swaps = new WeakMap();
+const RELEVO_SALIDA = 160;
+const RELEVO_ESPERA = 70;
+
+export function relevo(el, html, { montar, entrada = 'appear', escalonar = null } = {}) {
+  if (!el) return false;
+  const vivos = [...el.childNodes].filter((n) => !(n.nodeType === 1 && n.classList.contains('ox-relevo-calco')));
+  const caja = document.createElement('div');
+  caja.append(...vivos.map((n) => n.cloneNode(true)));
+  const actual = caja.innerHTML;
+  if (actual === html || actual === normal(html) || actual === normal(envolverTextos(html))) return false;
+
+  const habia = vivos.some((n) => n.nodeType === 1 || n.textContent.trim());
+  const animar = !reduceMotion() && typeof el.animate === 'function';
+
+  if (habia && animar) {
+    running.get(el)?.cancel();
+    const calco = document.createElement('div');
+    calco.className = 'ox-relevo-calco';
+    calco.inert = true;
+    calco.setAttribute('aria-hidden', 'true');
+    calco.append(...vivos);
+    for (const x of calco.querySelectorAll('[id]')) x.removeAttribute('id');
+    if (getComputedStyle(el).position === 'static') el.classList.add('ox-relevo-host');
+    el.prepend(calco);
+    // Lo que todavía estaba entrando se da por entrado: el calco se va desde
+    // donde lo agarró, no vuelve a arrancar adentro (lo que gira, sigue).
+    for (const a of calco.getAnimations({ subtree: true })) {
+      if (a.effect?.getTiming().iterations !== Infinity) a.finish();
+    }
+    // In-out y no ease-in: hay alguien esperando detrás.
+    const salida = calco.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: RELEVO_SALIDA, easing: EASE_BOTH, fill: 'forwards',
+    });
+    salida.finished.catch(() => {}).then(() => calco.remove());
+  } else {
+    vivos.forEach((n) => n.remove());
+  }
+
+  const tpl = document.createElement('template');
+  tpl.innerHTML = envolverTextos(html);
+  const nuevos = [...tpl.content.children];
+  el.append(tpl.content);
+  montar?.(el);
+  if (!animar) return true;
+
+  // Si no había nada, lo nuevo entra sin esperar: la espera es solo para relevar.
+  const espera = habia ? RELEVO_ESPERA : 0;
+  const filas = escalonar ? [...el.querySelectorAll(escalonar)] : [];
+  for (const n of nuevos) {
+    if (filas.some((f) => n === f || n.contains(f))) continue;
+    animateIn(n, { kind: entrada, delay: espera });
+  }
+  // Las filas, una detrás de otra; después de la décima entran juntas, que
+  // una lista larga no tarde en terminar de llegar.
+  filas.forEach((f, i) => animateIn(f, { kind: 'lift', delay: espera + Math.min(i, 10) * 24 }));
+  return true;
+}
+
+/** Un texto suelto entre elementos no se puede animar: va en un <span>. */
+function envolverTextos(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  for (const n of [...tpl.content.childNodes]) {
+    if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+    const s = document.createElement('span');
+    n.replaceWith(s);
+    s.append(n);
+  }
+  return tpl.innerHTML;
+}
+
+/**
+ * Relevo EN EL MISMO LUGAR para contenido que cambia de FORMA (una lista que
+ * pasa a estado vacío, un botón que pasa a barra de progreso, el nombre de la
+ * titlebar). Es relevo() con la firma de siempre: `kind` elige la entrada y
+ * devuelve una promesa por compatibilidad.
+ *
+ * Antes era un relevo EN FILA: lo viejo terminaba de irse (120 ms) y recién
+ * después entraba lo nuevo desde cero, así que en el medio había un instante
+ * sin nada. Ahora lo viejo se esfuma en un calco encima mientras lo nuevo ya
+ * asoma, y lo nuevo existe desde el primer cuadro (quien lo busque para
+ * actualizarlo lo encuentra).
+ */
 const ENTRADA = { fade: 'appear', rise: 'lift', appear: 'appear', lift: 'lift' };
 
-export function swap(el, html, { kind = 'fade', out = 120, montar } = {}) {
-  if (!el) return Promise.resolve(false);
-  const pendiente = swaps.get(el);
-  if (pendiente) {
-    Object.assign(pendiente, { html, kind, montar });
-    return pendiente.promise;
-  }
-  if (el.innerHTML === html || el.innerHTML === normal(html)) return Promise.resolve(false);
-
-  const entrar = (h, k, m) => {
-    el.innerHTML = h;
-    m?.(el);
-    if (h) animateIn(el, { kind: ENTRADA[k] || 'appear' });
-  };
-
-  const vacio = !el.childElementCount && !el.textContent.trim();
-  if (vacio || reduceMotion() || typeof el.animate !== 'function') {
-    entrar(html, kind, montar);
-    return Promise.resolve(true);
-  }
-
-  const estado = { html, kind, montar };
-  estado.promise = (async () => {
-    // Si todavía estaba entrando, la salida arranca desde donde iba y no desde
-    // 1: cancelar primero lo haría saltar a opacidad plena por un cuadro.
-    const desde = Number(getComputedStyle(el).opacity);
-    running.get(el)?.cancel();
-    const salida = el.animate([{ opacity: desde }, { opacity: 0 }], {
-      duration: out, easing: EASE_BOTH, fill: 'forwards',
-    });
-    running.set(el, salida);
-    await salida.finished.catch(() => {});
-    swaps.delete(el);
-    // La entrada se pone ANTES de soltar la salida: si se soltara primero,
-    // habría un cuadro con lo nuevo a opacidad 1.
-    entrar(estado.html, estado.kind, estado.montar);
-    salida.cancel();
-    if (running.get(el) === salida) running.delete(el);
-    return true;
-  })();
-  swaps.set(el, estado);
-  return estado.promise;
+export function swap(el, html, { kind = 'fade', montar } = {}) {
+  return Promise.resolve(relevo(el, html, { montar, entrada: ENTRADA[kind] || 'appear' }));
 }
 
 /**
@@ -242,7 +301,7 @@ function debajoDe(el) {
  * Marca data-state="closing" (el CSS engancha ahí) y espera al animationend,
  * con un timeout de red por si el elemento no tiene animación declarada.
  */
-export function exit(el, { fallback = 400, onDone } = {}) {
+export function exit(el, { fallback = 400, onDone, sacar } = {}) {
   if (!el || el.dataset.state === 'closing') return Promise.resolve();
   el.dataset.state = 'closing';
 
@@ -253,7 +312,7 @@ export function exit(el, { fallback = 400, onDone } = {}) {
       done = true;
       clearTimeout(timer);
       el.removeEventListener('animationend', onAnim);
-      el.remove();
+      if (sacar) sacar(el); else el.remove();
       onDone?.();
       resolve();
     };
@@ -261,6 +320,77 @@ export function exit(el, { fallback = 400, onDone } = {}) {
     const onAnim = (e) => { if (e.target === el) finish(); };
     el.addEventListener('animationend', onAnim);
     const timer = setTimeout(finish, fallback);
+  });
+}
+
+/**
+ * La vista que se va no desaparece de un cuadro al otro: su contenido pasa a
+ * un calco con la misma clase de `.ox-main` (y por eso su mismo fondo opaco),
+ * en la misma celda de la grilla, ENCIMA de la nueva, y se esfuma. La nueva
+ * está entera y quieta debajo desde el primer cuadro, así que la pantalla
+ * está tapada en todo momento: lo único que cambia es cuánto se ve de cada
+ * una. Antes la vieja se iba de golpe y la nueva subía desde transparente,
+ * corrida 10 px: medido, la vista pasaba por opacidad 0 en cada navegación.
+ * Portado de Onyx (2540ba6). Lo usan el router al navegar y paint() al
+ * repintar la misma vista (de «Cargando…» a la ficha, por ejemplo).
+ *
+ * El calco va sin ids (nadie tiene que encontrar un #campo que se está yendo),
+ * inerte, y conserva su scroll. Si la vista vieja todavía estaba entrando, el
+ * calco arranca desde la opacidad y el corrimiento en que la agarró.
+ */
+export function calcar(host) {
+  if (!host || !host.firstChild || !host.parentElement) return null;
+  const cs = getComputedStyle(host);
+  const calco = document.createElement(host.tagName);
+  calco.className = host.className;
+  calco.classList.add('ox-main--saliente');
+  calco.setAttribute('aria-hidden', 'true');
+  calco.inert = true;
+  calco.style.opacity = cs.opacity;
+  if (cs.transform !== 'none') calco.style.transform = cs.transform;
+  // Lo que la vista vieja estuviera animando sobre sí misma (la entrada del
+  // arranque, un repintado) ya quedó copiado en el calco: la nueva no lo hereda.
+  host.getAnimations().forEach((a) => a.cancel());
+
+  const scrolls = [...host.querySelectorAll('*')]
+    .filter((el) => el.scrollTop || el.scrollLeft)
+    .map((el) => [el, el.scrollTop, el.scrollLeft]);
+  calco.append(...host.childNodes);
+  for (const el of calco.querySelectorAll('[id]')) el.removeAttribute('id');
+  host.after(calco);
+  for (const [el, top, left] of scrolls) { el.scrollTop = top; el.scrollLeft = left; }
+
+  // Mover un nodo en el DOM le REINICIA las animaciones CSS: lo que tenía su
+  // propia entrada volvería a entrar desde cero adentro del calco que se va.
+  // Se dan por terminadas; lo que gira para siempre (un spinner) sigue.
+  for (const a of calco.getAnimations({ subtree: true })) {
+    if (a.effect?.getTiming().iterations !== Infinity) a.finish();
+  }
+
+  exit(calco, { fallback: 260 });
+  host.__calcadoEn = performance.now();
+  return calco;
+}
+
+/**
+ * Saca un nodo y DESLIZA a sus hermanos desde donde estaban hasta su lugar
+ * nuevo (FLIP: se mide antes, se saca, se mide después, y cada uno viaja con
+ * transform). Es para pilas como la de los toasts: sin esto, cuando uno se
+ * iba, los de arriba caían de golpe a ocupar el hueco.
+ * `composite: 'add'` suma el viaje a la animación que el hermano ya tenga
+ * (un toast que todavía está entrando), en vez de pisársela.
+ */
+export function sacarDeslizando(el, { duration = 240 } = {}) {
+  const otros = el.parentElement ? [...el.parentElement.children].filter((n) => n !== el) : [];
+  const antes = otros.map((n) => n.getBoundingClientRect().top);
+  el.remove();
+  if (reduceMotion()) return;
+  otros.forEach((n, i) => {
+    const dy = antes[i] - n.getBoundingClientRect().top;
+    if (Math.abs(dy) < 0.5) return;
+    n.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
+      duration, easing: EASE, composite: 'add',
+    });
   });
 }
 

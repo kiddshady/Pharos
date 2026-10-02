@@ -1024,6 +1024,132 @@ app.whenReady().then(async () => {
   }
   await js(`document.getElementById('aud-notr')?.remove()`);
 
+  /* ── 10. El movimiento, medido ─────────────────────────────────────────────
+     Cada arreglo de la auditoría de transiciones con su prueba: se muestrea
+     CADA CUADRO en la página (rAF) y se mide lo que antes fallaba. Con
+     cualquiera de los arreglos deshecho, su prueba falla:
+     · navegar destapaba la pantalla (la vista vieja se iba de golpe y la nueva
+       subía desde 0);
+     · la mCaja de actualizaciones se apagaba entera a 18 % en cada fase, y el
+       alto saltaba;
+     · el porcentaje de la descarga parpadeaba en cada aviso;
+     · el detalle del error aparecía de golpe;
+     · los toasts de arriba caían de golpe cuando se iba uno;
+     · el indicador del rail no viajaba;
+     · la mPista del campo cambiaba en seco. */
+  console.log('\n10. El movimiento, medido');
+  await js(`(() => {
+    window.__ef = (el) => { let o = 1; for (let n = el; n && n.nodeType === 1; n = n.parentElement) o *= +getComputedStyle(n).opacity; return o; };
+    window.__curva = (ms, medir) => new Promise((ok) => {
+      const filas = []; const t0 = performance.now();
+      const loop = () => { const t = performance.now() - t0; filas.push(medir(t)); if (t < ms) requestAnimationFrame(loop); else ok(filas); };
+      requestAnimationFrame(loop);
+    });
+    return 0;
+  })()`);
+  const mMinimo = (xs) => Math.min(...xs);
+
+  // 10.1 Navegar: la pantalla tapada en todo momento, la nueva quieta.
+  await click('[data-view="buscar"]');
+  await sleep(700);
+  const mNavCurva = js(`window.__curva(320, () => {
+    const v = document.getElementById('view');
+    const c = document.querySelector('.ox-main--saliente');
+    const nuevo = +getComputedStyle(v).opacity;
+    const viejo = c ? +getComputedStyle(c).opacity : 0;
+    return { tapado: Math.round((viejo + (1 - viejo) * nuevo) * 100), quieta: getComputedStyle(v).transform === 'none',
+             ind: (() => { const i = document.querySelector('.ph-rail-ind'); return i ? getComputedStyle(i).transform : ''; })() };
+  })`);
+  await click('[data-view="historial"]');
+  const mNav = await mNavCurva;
+  ok('al navegar la pantalla nunca queda destapada (≥ 97 %)', mMinimo(mNav.map((f) => f.tapado)) >= 97,
+    mNav.map((f) => f.tapado).join(' '));
+  ok('y la vista nueva no se corre', mNav.every((f) => f.quieta));
+  await sleep(300);
+  ok('y el calco de la vieja se va', !(await js(`!!document.querySelector('.ox-main--saliente')`)));
+  ok('el rail tiene UN indicador', (await js(`document.querySelectorAll('.ph-rail-ind').length`)) === 1);
+  ok('y viaja de un ítem al otro (pasa por posiciones intermedias)',
+    new Set(mNav.map((f) => f.ind)).size >= 4, `${new Set(mNav.map((f) => f.ind)).size} posiciones`);
+
+  // 10.2 La mPista del campo se apaga para cambiar de texto.
+  await click('[data-view="buscar"]');
+  await sleep(700);
+  const mPistaCurva = js(`(() => {
+    const c = document.getElementById('campo'); c.value = '';
+    const alfa = (col) => { const cx = document.createElement('canvas').getContext('2d'); cx.fillStyle = col; cx.fillRect(0, 0, 1, 1); return cx.getImageData(0, 0, 1, 1).data[3]; };
+    return window.__curva(400, () => ({ a: alfa(getComputedStyle(c, '::placeholder').color), txt: c.placeholder }));
+  })()`);
+  await click('#seg-modo [data-value="laboratorio"]');
+  const mPista = await mPistaCurva;
+  const mCambio = mPista.findIndex((f, i) => i && f.txt !== mPista[i - 1].txt);
+  ok('la pista cambia de texto con el campo apagado, no en seco',
+    mCambio > 0 && mPista[mCambio].a < 25 && mPista[mCambio - 1].a < 25, mPista.map((f) => f.a).join(' '));
+  ok('y vuelve a prenderse', mPista[mPista.length - 1].a > 200);
+  await click('#seg-modo [data-value="droga"]');
+
+  // 10.3 La mCaja de actualizaciones: estructura fija, solo cambia lo que cambia.
+  await click('[data-view="ajustes"]');
+  await sleep(800);
+  const mEnviar = (u) => win.webContents.send('update:estado', { versionActual: version, soportado: true, error: null, ...u });
+  mEnviar({ fase: 'inactivo' });
+  await sleep(400);
+  await js(`window.__btn = document.querySelector('[data-update-accion] > [data-action="buscar-update"]'); 0`);
+  const mCajaCurva = js(`window.__curva(900, () => {
+    const c = document.getElementById('caja-update');
+    const b = c.querySelector('[data-update-accion] > [data-action="buscar-update"]');
+    return { titulo: window.__ef(c.querySelector('.ox-section__title')), alto: Math.round(c.querySelector('.ox-card').getBoundingClientRect().height),
+             boton: b ? window.__ef(b) : 0, ocupado: !!b?.disabled && !!b.querySelector('.ph-ocupable.is-ocupado') };
+  })`);
+  mEnviar({ fase: 'buscando' });
+  await sleep(350);
+  mEnviar({ fase: 'al-dia' });
+  const mCaja = await mCajaCurva;
+  ok('buscar: el título y la versión no se apagan', mMinimo(mCaja.map((f) => f.titulo)) > 0.99,
+    `mínimo ${mMinimo(mCaja.map((f) => f.titulo)).toFixed(2)}`);
+  ok('el botón no se reemplaza ni se apaga: se pone a trabajar',
+    mMinimo(mCaja.map((f) => f.boton)) > 0.99 && mCaja.some((f) => f.ocupado)
+    && (await js(`document.querySelector('[data-update-accion] > [data-action="buscar-update"]') === window.__btn`)));
+  ok('y vuelve a quedar libre', !mCaja[mCaja.length - 1].ocupado);
+  ok('el alto de la caja no salta', new Set(mCaja.map((f) => f.alto)).size === 1, [...new Set(mCaja.map((f) => f.alto))].join(' '));
+
+  mEnviar({ fase: 'disponible', version: '9.9.9' });
+  await sleep(400);
+  mEnviar({ fase: 'descargando', progreso: 0 });
+  await sleep(400);
+  const mPctCurva = js(`window.__curva(700, () => { const p = document.querySelector('[data-update-progreso]'); return p ? window.__ef(p) : 1; })`);
+  for (let p = 5; p <= 60; p += 5) { mEnviar({ fase: 'descargando', progreso: p }); await sleep(55); }
+  const mPct = await mPctCurva;
+  ok('el porcentaje de la descarga cambia sin parpadear', mMinimo(mPct) > 0.99, `mínimo ${mMinimo(mPct).toFixed(2)}`);
+
+  mEnviar({ fase: 'al-dia' });
+  await sleep(500);
+  const mErrCurva = js(`window.__curva(400, () => Math.round(document.querySelector('#caja-update .ox-card').getBoundingClientRect().height))`);
+  mEnviar({ fase: 'error', error: 'Sin conexión' });
+  const mErr = await mErrCurva;
+  ok('el detalle del error se despliega (el alto pasa por el medio)',
+    new Set(mErr).size >= 4 && mErr[mErr.length - 1] > mErr[0], [...new Set(mErr)].join(' '));
+  win.webContents.send('update:estado', await js('window.onyx.update.estado()'));
+  await sleep(400);
+
+  // 10.4 Toasts: cuando se va el de abajo, los de arriba se deslizan.
+  await js(`import('./js/router.js').then(({ default: Router }) => Router.go('piezas'))`);
+  await sleep(800);
+  await click('#demo-toast');
+  await sleep(300);
+  await click('#demo-toast');
+  await sleep(500);
+  const mToastCurva = js(`(() => {
+    const arriba = document.querySelectorAll('.ox-toasts .ox-toast')[1];
+    return window.__curva(500, () => Math.round(arriba.getBoundingClientRect().top));
+  })()`);
+  await js(`document.querySelector('.ox-toasts .ox-toast [data-close]').click()`);
+  const mToast = await mToastCurva;
+  const mSalto = Math.max(...mToast.slice(1).map((y, i) => Math.abs(y - mToast[i])));
+  ok('cuando un toast se va, el de arriba se desliza (sin saltos de más de 24 px por cuadro)',
+    mSalto <= 24 && mToast[mToast.length - 1] > mToast[0], `y: ${[...new Set(mToast)].join(' ')}`);
+  await js(`document.querySelectorAll('.ox-toasts [data-close]').forEach((b) => b.click())`);
+  await sleep(400);
+
   /* Devolver todo como estaba: los ajustes y el historial se restauran con la
      foto del principio, y de los favoritos se borran SOLO los que agregó el
      test. Nada de vaciar colecciones enteras. */

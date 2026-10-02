@@ -444,42 +444,69 @@ del DOM parpadea.
 ### Lo que agrega Pharos
 
 Una app de datos reemplaza contenido después de cada consulta, y eso también
-tiene que moverse. Tres herramientas, según la escala del cambio:
+tiene que moverse. La regla que ordena todo (salió de una auditoría con cada
+cuadro medido, octubre 2026): **nada se apaga para volver a prenderse**. Antes
+casi todo cambio ponía lo nuevo en el mismo cuadro arrancando de 18–30 % de
+opacidad; no había corte, pero el bloque entero —también lo que no había
+cambiado— se leía como un parpadeo. Las herramientas, según la escala:
 
 ```js
-replaceHTML(el, html, { kind })  // un DATO que cambia: lo nuevo entra encima, desde .22
-setText(el, valor)               // lo mismo para un texto suelto (con tick)
-swap(el, html, { kind, montar }) // un BLOQUE que cambia de forma: relevo en el mismo lugar
-leave(el, { remove, collapse })  // una fila que se va; con collapse, lo de abajo se desliza
+calcar(host)                         // una SUPERFICIE: fundido con calco opaco
+relevo(el, html, { montar, escalonar }) // un BLOQUE chico: relevo en el lugar
+swap(el, html, { kind, montar })     // lo mismo que relevo, con la firma vieja
+cambiarValor(el, html)               // un VALOR con markup: en el lugar + destello
+setText(el, valor)                   // un número suelto: en el lugar + destello
+setText(el, valor, false)            // un progreso: en el lugar, sin nada
+leave(el, { remove, collapse })      // una fila que se va; lo de abajo se desliza
+sacarDeslizando(el)                  // saca un nodo y desliza a sus hermanos
 ```
 
-- **`replaceHTML`** es para cifras: un subtotal, una celda de la tabla. Compara
-  contra el HTML *normalizado* por el navegador (`<path/>` vuelve como
-  `<path></path>`): con la comparación cruda, todo lo que llevaba un SVG
-  «cambiaba» siempre y se volvía a fundir en cada llamada.
-- **`swap`** es para lo que cambia de forma: una lista que pasa a estado vacío,
-  el botón «Traer precios» que pasa a medidor, el nombre de la titlebar. Lo
-  viejo se termina de ir (in-out, 120 ms) y recién ahí entra lo nuevo, desde
-  cero. Si no había nada, entra sin esperar; si llega otro swap a mitad, gana el
-  último.
+- **Vistas (`calcar`).** Navegar y repintar la misma vista son un fundido: lo
+  de antes pasa a un calco con el fondo opaco de `.ox-main`, en la misma celda
+  y encima, y se esfuma (`--ox-t-2`, in-out). Lo nuevo está entero y quieto
+  debajo desde el primer cuadro, así que la pantalla está tapada todo el
+  tiempo, y lo que no cambió (el título) es idéntico en las dos capas y no se
+  mueve. Lo usan el router y `paint()`. Portado de Onyx (2540ba6).
+- **Bloques (`relevo`).** Lo viejo se esfuma en un calco encima que copia el
+  acomodo del contenedor (no se corre mientras se va) y lo nuevo asoma desde
+  cero 70 ms después, cuando lo viejo va por un tercio. Los textos sueltos se
+  envuelven en un `<span>` para poder animarlos. Con `escalonar` las filas de
+  una lista entran una detrás de otra. Es para cosas chicas sobre el mismo
+  fondo: el estado de las actualizaciones, la lista de resultados, el nombre de
+  la titlebar, una frase de la statusbar. Un contenedor que vive alineado a la
+  derecha o centrado tiene que estarlo también por dentro (`justify-content`),
+  así el calco deja lo que se va en su lugar.
+- **Valores (`cambiarValor`, `setText`).** Un número que cambia no se apaga: se
+  reescribe en su lugar y destella en el acento (`tick`). Con el stepper
+  apretado queda «encendido» mientras cambia, en vez de parpadear en cada paso.
+- **No mostrar lo que dura un instante.** «Cargando» aparece recién si la
+  espera pasa de 160 ms (`empezarCarga` en app.js): con una respuesta guardada,
+  el esqueleto se veía un solo cuadro. Y «Buscando…» de las actualizaciones se
+  sostiene 600 ms: con la respuesta en el acto, el spinner era un parpadeo.
+- **Un control que se pone a trabajar no se reemplaza.** El botón de buscar
+  actualizaciones se deshabilita y su ícono pasa a ser el spinner
+  (`.ph-ocupable`): mismo tamaño, mismo lugar.
+- **Lo que se prende con `hidden` se pliega** (`.ox-plegable`, de Onyx): el
+  detalle de un error se despliega en vez de empujar de golpe lo de abajo.
 - **`leave(…, { collapse: true })`** mide todo lo que viene debajo (hermanos y
   hermanos de cada ancestro hasta el `.ox-scroll`), saca el nodo y hace viajar a
-  cada uno desde donde estaba (FLIP). Así el total del carrito, que vive fuera
-  de la tabla, también se desliza en vez de saltar.
+  cada uno desde donde estaba (FLIP). Los toasts hacen lo mismo con
+  `sacarDeslizando` cuando se va uno de la pila.
 
-Y **`paint()` repinta por partes**: si la vista es la misma (no hubo
-navegación), anima solo el título, las acciones o el cuerpo que hayan cambiado.
-Antes fundía la vista entera desde .22 y el título, que casi nunca cambia,
-pestañeaba. Aun así, lo que se puede actualizar en su lugar se actualiza en su
-lugar: la estrella de favorito, el switch y las cifras del descuento, el botón
-del carrito de cada presentación. Un repintado mata los controles que el
-usuario tiene en la mano (el stepper que está aguantando, la cápsula que viaja).
+Lo que se puede actualizar en su lugar se actualiza en su lugar: la estrella de
+favorito, el switch y las cifras del descuento, el botón del carrito de cada
+presentación. Un repintado mata los controles que el usuario tiene en la mano
+(el stepper que está aguantando, la cápsula que viaja).
+
+El smoke («10. El movimiento, medido») muestrea cada cuadro y falla si
+cualquiera de estas cosas vuelve atrás: con el código anterior fallaban 11.
 
 ### Clases de animación
 
 Entradas: `.ox-in-fade` · `.ox-in-rise` · `.ox-in-glide` · `.ox-in-pop`.
 Estado: `.ox-spinning` · `.ox-breathing` · `.ox-shaking` · `.ox-skeleton` ·
-`.ox-ticked`. `.ox-view` es la transición de vista (la aplica el router).
+`.ox-ticked`. `.ox-view` es la entrada de la primera vista; las demás llegan
+con el fundido de `calcar()`. `.ox-plegable` para lo que se prende con `hidden`.
 `.ox-reveal` con `.is-open` para el alto.
 
 ---

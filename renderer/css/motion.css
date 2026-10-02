@@ -123,6 +123,71 @@
 .ox-reveal > * { min-height: 0; overflow: hidden; }
 .ox-reveal.is-open { grid-template-rows: 1fr; }
 
+/* ── Plegable: lo que se prende y se apaga con `hidden` ─────────────────────
+   `.ox-reveal` es para cuando manejás una clase y tenés un envoltorio. Esto es
+   para lo que ya se prende con `el.hidden = …`: una barra que aparece, un
+   progreso, una caja de opciones, un dato de la statusbar. Con
+   `display: none` a secas eso aparece y se va de un cuadro al otro, y empuja
+   de golpe a lo que tiene al lado. Salió de Quire (0.9.8), donde lo hacían
+   seis cosas distintas.
+
+   El JS no cambia: sigue siendo `el.hidden`. El alto (o el ancho, con
+   `--ancho`) se pliega hasta 0 mientras se desvanece, y recién al final pasa
+   a `display: none` (`allow-discrete`). Al aparecer, `@starting-style` le da
+   de dónde salir, e `interpolate-size` es lo que deja ir de 0 a `auto`.
+
+   - El mínimo en 0 es lo que deja llegar a 0: en un flex, el `min-height:
+     auto` del ítem lo frenaba en el alto de su contenido y ahí se cortaba de
+     golpe.
+   - La clase va DOBLE a propósito. motion.css se carga antes que controls y
+     surfaces, y la `transition` de un `.ox-chip` o un `.ox-btn` le ganaba por
+     orden a la de acá con la misma especificidad: el pliegue no se animaba.
+     Con la clase doble gana esta, y por eso la lista repite las transiciones
+     de esos componentes (`--tr-color` y el transform del press): sin
+     repetirlas, un botón plegable perdería el hover suave.
+   - Trae su propio `[hidden] { display: none }`, así que sirve también sobre
+     algo que declara su `display` (un `.ox-btn` es inline-flex y le gana al
+     `hidden` del navegador).
+
+   Ojo: plegar el alto relayouta en cada cuadro. Si lo de abajo reacciona al
+   tamaño (un ResizeObserver que redibuja), que espere a que termine —en
+   Quire, el visor reescalaba el PDF once veces por cada barra plegada—. */
+.ox-plegable.ox-plegable,
+.ox-plegable--ancho.ox-plegable--ancho {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  min-height: 0;
+  transition:
+    var(--tr-color),
+    transform var(--ox-t-1) var(--ox-ease-soft),
+    height var(--ox-t-2) var(--ox-ease-both),
+    width var(--ox-t-2) var(--ox-ease-both),
+    padding var(--ox-t-2) var(--ox-ease-both),
+    margin var(--ox-t-2) var(--ox-ease-both),
+    opacity var(--ox-t-2) var(--ox-ease-soft),
+    display var(--ox-t-2) allow-discrete;
+}
+.ox-plegable[hidden] { display: none; height: 0; padding-block: 0; margin-block: 0; opacity: 0; }
+@starting-style {
+  .ox-plegable:not([hidden]) { height: 0; padding-block: 0; margin-block: 0; opacity: 0; }
+}
+
+/* Plegado de ancho, para una fila. Un ítem de ancho 0 igual cuenta un hueco
+   del `gap` de su fila, y sin descontarlo los de al lado saltarían justo
+   cuando pasa a `display: none`: por eso el margen negativo, que es
+   `--ox-plegable-gap` (la fila lo declara; la statusbar ya lo trae). */
+.ox-plegable--ancho { white-space: nowrap; min-width: 0; }
+.ox-plegable--ancho[hidden] {
+  display: none; width: 0; padding-inline: 0; opacity: 0;
+  margin-inline-end: calc(-1 * var(--ox-plegable-gap, 0px));
+}
+@starting-style {
+  .ox-plegable--ancho:not([hidden]) {
+    width: 0; padding-inline: 0; opacity: 0;
+    margin-inline-end: calc(-1 * var(--ox-plegable-gap, 0px));
+  }
+}
+
 /* ── Estados vivos ───────────────────────────────────────────────────────── */
 .ox-breathing { animation: ox-breathe 2.2s var(--ox-ease-both) infinite; }
 .ox-spinning  { animation: ox-spin 900ms linear infinite; }
@@ -146,6 +211,39 @@
    Al cambiar de sección la vista entra sobre el eje del flujo. Es la misma
    gramática que los pasos del pipeline: todo en Onyx avanza hacia la derecha. */
 .ox-view { animation: ox-glide-in var(--ox-t-4) var(--ox-ease) both; }
+
+/* Relevo de vistas: un fundido. La vieja pasa a un calco (.ox-main--saliente,
+   lo arma el router) en la misma celda que la nueva, encima de ella, y se
+   esfuma. La nueva ya está entera y quieta debajo: el calco es opaco (el fondo
+   de .ox-main), así que la pantalla está tapada en todo momento.
+   La salida va in-out: con ease-in la opacidad caería de golpe al final. Mismo
+   lugar, no al lado: si no, la nueva saltaría al terminar. */
+.ox-body > .ox-main { grid-column: 2; grid-row: 1; }
+.ox-main--saliente { pointer-events: none; z-index: 1; }
+.ox-main--saliente[data-state='closing'] { animation: ox-desvanecer var(--ox-t-2) var(--ox-ease-both) both; }
+/* Sin `from`: sale desde donde esté, aunque la agarre a mitad de su entrada. */
+@keyframes ox-desvanecer { to { opacity: 0 } }
+
+/* ── relevo() ────────────────────────────────────────────────────────────────
+   El calco de un bloque que se reemplaza (motion.js). Va encima de lo nuevo y
+   copia el acomodo del contenedor —flex, centrado, separación, relleno— para
+   que lo viejo no se mueva mientras se esfuma. La salida la anima el JS. */
+.ox-relevo-host { position: relative; }
+.ox-relevo-calco {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  display: inherit;
+  flex-direction: inherit;
+  flex-wrap: inherit;
+  align-items: inherit;
+  justify-items: inherit;
+  justify-content: inherit;
+  align-content: inherit;
+  gap: inherit;
+  padding: inherit;
+}
 
 /* El sistema operativo puede pedir menos movimiento. Los cambios siguen
    teniendo causa y efecto por color/estado, pero no desplazan la pantalla. */

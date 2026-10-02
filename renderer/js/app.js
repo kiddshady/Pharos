@@ -12,7 +12,7 @@ import { Tooltip, Toast, Modal } from './overlays.js';
 import Router from './router.js';
 import {
   initClickFlash, initScrollFades, leave, raf2,
-  bindSwitcher, bindStepper, replaceHTML, setText, swap,
+  bindSwitcher, bindStepper, setText, swap, relevo, cambiarValor,
 } from './motion.js';
 import { esc, paint, head, empty, attempt, copy, colorToken, path } from './ui.js';
 import { fmtPesos, fmtBytes, relTime, plural } from './format.js';
@@ -90,6 +90,8 @@ const S = {
   busqueda: null,
   expansion: null,
   cargando: false,
+  /** Si el esqueleto de carga ya se muestra (ver ESPERA_CARGANDO). */
+  cargaVisible: false,
   /** El índice del buscador. No se guarda: cada arranque vuelve a droga, que
       es la búsqueda que junta todas las marcas para comparar. */
   modo: 'droga',
@@ -486,6 +488,31 @@ const PLACEHOLDER = {
   laboratorio: 'Nombre del laboratorio…',
 };
 
+/* «Cargando» aparece recién si la espera se nota. Con una respuesta que ya
+   estaba guardada, el esqueleto se pintaba UN cuadro (13 ms, medido) y se iba:
+   un destello entre lo que había y el resultado. Ahora lo de antes se queda
+   hasta que llega lo nuevo, y solo si tarda más de ESPERA_CARGANDO se cambia
+   por el esqueleto. */
+const ESPERA_CARGANDO = 160;
+let timerCarga = null;
+
+function empezarCarga(pintar) {
+  S.cargando = true;
+  S.cargaVisible = false;
+  clearTimeout(timerCarga);
+  timerCarga = setTimeout(() => {
+    if (!S.cargando) return;
+    S.cargaVisible = true;
+    pintar();
+  }, ESPERA_CARGANDO);
+}
+
+function terminarCarga() {
+  clearTimeout(timerCarga);
+  S.cargando = false;
+  S.cargaVisible = false;
+}
+
 async function buscar(patron, { forzar = false } = {}) {
   const termino = String(patron || '').trim();
   if (termino.length < 2) {
@@ -494,7 +521,7 @@ async function buscar(patron, { forzar = false } = {}) {
   }
 
   const modo = S.modo;
-  S.cargando = true;
+  empezarCarga(() => pintarBuscar());
   S.expansion = null;
   if (Router.name === 'buscar') pintarBuscar(termino); else Router.go('buscar');
 
@@ -506,14 +533,14 @@ async function buscar(patron, { forzar = false } = {}) {
   } catch (err) {
     S.busqueda = { modo, patron: termino, items: [], total: 0, error: err.message };
   } finally {
-    S.cargando = false;
+    terminarCarga();
     pintarBuscar(termino);
   }
 }
 
 /** Abre una droga o un laboratorio: de la entrada del índice a sus productos. */
 async function expandir(item) {
-  S.cargando = true;
+  empezarCarga(() => pintarBuscar());
   S.expansion = { nombre: item.nombre, mde: item.mde, items: [] };
   pintarBuscar();
 
@@ -531,7 +558,7 @@ async function expandir(item) {
   } catch (err) {
     S.expansion = { nombre: item.nombre, mde: item.mde, items: [], error: err.message };
   } finally {
-    S.cargando = false;
+    terminarCarga();
     pintarBuscar();
   }
 }
@@ -544,7 +571,7 @@ async function abrirProducto(slug, { forzar = false } = {}) {
   }
 
   S.ficha = null;
-  S.cargando = true;
+  empezarCarga(() => pintarProducto());
   if (Router.name === 'producto' && Router.param === slug) pintarProducto();
   else Router.go('producto', slug);
 
@@ -554,7 +581,7 @@ async function abrirProducto(slug, { forzar = false } = {}) {
   } catch (err) {
     S.ficha = { error: err.message, nombre: ref.nombre };
   } finally {
-    S.cargando = false;
+    terminarCarga();
     pintarProducto();
   }
 }
@@ -669,8 +696,10 @@ function pintarBuscar(valorForzado) {
 
   const resultados = document.getElementById('resultados-buscar');
   if (!resultados) return;
-  replaceHTML(resultados, resultadosHTML(), { kind: 'rise' });
-  Icons.mount(resultados);
+  // Mientras carga y todavía no se nota, lo que había se queda como está.
+  const html = resultadosHTML();
+  if (html == null) return;
+  relevo(resultados, html, { montar: Icons.mount, escalonar: '.ox-list > .ox-listitem' });
 }
 
 function buscadorHTML(valor) {
@@ -693,7 +722,7 @@ function buscadorHTML(valor) {
 }
 
 function resultadosHTML() {
-  if (S.cargando && !S.barrido) return cargando();
+  if (S.cargando && !S.barrido) return S.cargaVisible ? cargando() : null;
 
   const vista = S.expansion || S.busqueda;
   if (!vista) {
@@ -781,8 +810,7 @@ function pintarProgresoBarrido(slug) {
   const item = (S.expansion || S.busqueda)?.items?.find((it) => it.slug === slug);
   const precio = fila?.querySelector('[data-cell="precio"]');
   if (precio && item) {
-    replaceHTML(precio, precioProductoHTML(item), { kind: 'tick' });
-    Icons.mount(precio);
+    relevo(precio, precioProductoHTML(item), { montar: Icons.mount });
   }
 
   const control = document.querySelector('[data-barrido]');
@@ -792,7 +820,7 @@ function pintarProgresoBarrido(slug) {
   if (!control) { pintarSlotBarrido(); return; }
   const pct = Math.round((S.barrido.hechos / S.barrido.total) * 100);
   control?.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${pct}%`);
-  setText(control?.querySelector('[data-barrido-cuenta]'), `${S.barrido.hechos}/${S.barrido.total}`);
+  setText(control?.querySelector('[data-barrido-cuenta]'), `${S.barrido.hechos}/${S.barrido.total}`, false);
 }
 
 function precioProductoHTML(it) {
@@ -847,6 +875,19 @@ function filaIndice(it) {
     </div>`;
 }
 
+/** La pista del campo se apaga, cambia y se vuelve a prender: un texto de
+    placeholder no se puede fundir con otro, y cambiado en seco se leía como un
+    salto justo al lado de la cápsula, que viaja suave. */
+function cambiarPista(campo, texto) {
+  if (campo.placeholder === texto) return;
+  clearTimeout(campo.__pista);
+  campo.classList.add('ph-pista-muda');
+  campo.__pista = setTimeout(() => {
+    campo.placeholder = texto;
+    campo.classList.remove('ph-pista-muda');
+  }, 110);
+}
+
 /** Los listeners de esta vista se enganchan a nodos que MUEREN con el
     repintado. Enganchar a #view sería acumular un handler por visita: la
     primera vez anda, la segunda cada click se dispara dos veces. */
@@ -857,7 +898,7 @@ function wireBuscar(zona) {
       S.modo = valor;
       // El placeholder cambia con el índice; lo escrito se respeta.
       const campo = document.getElementById('campo');
-      if (campo) campo.placeholder = PLACEHOLDER[valor];
+      if (campo) cambiarPista(campo, PLACEHOLDER[valor]);
     });
   }
 
@@ -882,7 +923,7 @@ function pintarProducto() {
 
   if (S.cargando || !f) {
     paint(head({ crumbs, title: ref.nombre || 'Cargando…' })
-      + `<div class="ox-scroll ox-grow">${cargando()}</div>`);
+      + `<div class="ox-scroll ox-grow">${S.cargaVisible ? cargando() : ''}</div>`);
     return;
   }
 
@@ -1086,7 +1127,7 @@ function actualizarFicha() {
     campo.value = d.porcentaje;
     campo.dispatchEvent(new Event('input'));   // que las flechas se re-habiliten
   }
-  replaceHTML(document.getElementById('desc-meta'), descuentoMetaHTML(d), { kind: 'tick' });
+  relevo(document.getElementById('desc-meta'), descuentoMetaHTML(d));
 
   const tabla = document.getElementById('ficha-presentaciones');
   if (tabla) morph(tabla, presentacionesHTML(S.ficha.presentaciones, Router.param));
@@ -1106,11 +1147,10 @@ function morph(el, html) {
   const misma = nuevas.length === viejas.length
     && nuevas.every((n, i) => n.dataset.k === viejas[i].dataset.k);
   if (!misma) {
-    replaceHTML(el, html, { kind: 'fade' });
-    Icons.mount(el);
+    relevo(el, html, { montar: Icons.mount });
     return;
   }
-  nuevas.forEach((n, i) => replaceHTML(viejas[i], n.innerHTML, { kind: 'tick' }));
+  nuevas.forEach((n, i) => cambiarValor(viejas[i], n.innerHTML));
 }
 
 /* ══ Vista: Favoritos ════════════════════════════════════════════════════════ */
@@ -1388,8 +1428,8 @@ function totalesHTML() {
 function actualizarFila(it) {
   const tr = document.querySelector(`tr[data-item="${it.id}"]`);
   if (!tr) return;
-  replaceHTML(tr.querySelector('[data-cell="unit"]'), unitarioHTML(it), { kind: 'tick' });
-  replaceHTML(tr.querySelector('[data-cell="sub"]'), subtotalHTML(it), { kind: 'tick' });
+  cambiarValor(tr.querySelector('[data-cell="unit"]'), unitarioHTML(it));
+  cambiarValor(tr.querySelector('[data-cell="sub"]'), subtotalHTML(it));
   swap(tr.querySelector('[data-cell="perdido"]'), perdidoHTML(it));
 }
 
@@ -1411,7 +1451,7 @@ function pintarAccionRefresco() {
   if (S.refresco && control) {
     const pct = Math.round((S.refresco.hechos / S.refresco.total) * 100);
     control.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${pct}%`);
-    setText(control.querySelector('[data-refresco-cuenta]'), `${S.refresco.hechos}/${S.refresco.total}`);
+    setText(control.querySelector('[data-refresco-cuenta]'), `${S.refresco.hechos}/${S.refresco.total}`, false);
     return;
   }
   swap(slot, refrescoHTML(), { montar: Icons.mount });
@@ -1472,33 +1512,59 @@ const FASE = {
   error: 'No se pudo verificar',
 };
 
-function updateHTML() {
-  const u = S.update || { fase: 'inactivo', versionActual: S.info?.version, soportado: true };
-  const buscar = `<button class="ox-btn ox-btn--secondary ox-flashable" data-action="buscar-update">
-      ${Icons.svg('retry')} Buscar actualizaciones</button>`;
+/* La caja tiene una estructura FIJA y en cada aviso se toca solo lo que
+   cambió. Antes se reescribía entera con un fundido desde 18 %: cada cambio de
+   fase apagaba y volvía a prender también el título y la versión instalada
+   —dos veces por cada «Buscar», medido—, y el alto saltaba 13 px porque el
+   botón se cambiaba por un texto más bajo. Ahora:
+   · el estado hace un relevo corto en su lugar;
+   · el botón de buscar NO se reemplaza: al buscar se deshabilita y su ícono
+     pasa a ser el spinner, así que no cambia de tamaño;
+   · la fila de acciones solo releva cuando cambia de TIPO (buscar → descargar
+     → progreso → instalar), y tiene el alto del botón aunque muestre la barra;
+   · el detalle del error se pliega en vez de aparecer de golpe. */
 
-  let accion = buscar;
-  if (u.fase === 'buscando') {
-    accion = `<span class="ox-meta">${Icons.spinner()} Buscando…</span>`;
-  } else if (u.fase === 'disponible') {
-    accion = `<button class="ox-btn ox-btn--primary ox-flashable" data-action="bajar-update">
-      ${Icons.svg('download')} Descargar ${esc(u.version || '')}</button>`;
-  } else if (u.fase === 'descargando') {
-    const progreso = Math.round(Number(u.progreso) || 0);
-    accion = `<div class="ox-row" style="gap:10px;align-items:center">
-      <div class="ox-meter" style="--ox-pct:${progreso}%;width:170px"><div class="ox-meter__fill"></div></div>
-      <span class="ox-meta ox-num" data-update-progreso>${progreso}%</span></div>`;
-  } else if (u.fase === 'lista') {
-    accion = `<button class="ox-btn ox-btn--primary ox-flashable" data-action="instalar-update">
-      ${Icons.svg('zap')} Reiniciar e instalar ${esc(u.version || '')}</button>`;
+const estadoUpdate = () => S.update || { fase: 'inactivo', versionActual: S.info?.version, soportado: true };
+
+function estadoUpdateHTML(u) {
+  return `<span>${esc(FASE[u.fase] || FASE.inactivo)}${
+    u.fase === 'disponible' && u.version ? `: <b>${esc(u.version)}</b>` : ''}</span>`;
+}
+
+const botonBuscarUpdate = (ocupado) => `
+  <button class="ox-btn ox-btn--secondary ox-flashable" data-action="buscar-update"${ocupado ? ' disabled' : ''}>
+    <span class="ph-ocupable${ocupado ? ' is-ocupado' : ''}">${Icons.svg('retry')}${Icons.spinner()}</span>
+    Buscar actualizaciones</button>`;
+
+/** Qué va en la fila de acciones. `clave` es el TIPO de acción: mientras no
+    cambie, la fila se actualiza en su lugar en vez de relevarse. */
+function accionDeUpdate(u) {
+  if (u.fase === 'disponible') {
+    return { clave: 'bajar', html: `<button class="ox-btn ox-btn--primary ox-flashable" data-action="bajar-update">
+      ${Icons.svg('download')} Descargar ${esc(u.version || '')}</button>` };
   }
+  if (u.fase === 'descargando') {
+    const progreso = Math.round(Number(u.progreso) || 0);
+    return { clave: 'progreso', html: `<div class="ox-row ph-progreso" style="gap:10px;align-items:center">
+      <div class="ox-meter" style="--ox-pct:${progreso}%;width:170px"><div class="ox-meter__fill"></div></div>
+      <span class="ox-meta ox-num" data-update-progreso>${progreso}%</span></div>` };
+  }
+  if (u.fase === 'lista') {
+    return { clave: 'instalar', html: `<button class="ox-btn ox-btn--primary ox-flashable" data-action="instalar-update">
+      ${Icons.svg('zap')} Reiniciar e instalar ${esc(u.version || '')}</button>` };
+  }
+  return { clave: 'buscar', html: botonBuscarUpdate(u.fase === 'buscando') };
+}
 
-  /* Corriendo desde el código fuente no hay con qué compararse. Decirlo es
-     mejor que mostrar un botón que no puede hacer nada. */
-  const nota = u.soportado === false
-    ? 'Las actualizaciones funcionan en la app instalada. Corriendo desde el código, actualizás con git.'
-    : 'Se busca sola al abrir la app, pero descargar e instalar los decidís vos.';
+/* Corriendo desde el código fuente no hay con qué compararse. Decirlo es
+   mejor que mostrar un botón que no puede hacer nada. */
+const notaUpdate = (u) => (u.soportado === false
+  ? 'Las actualizaciones funcionan en la app instalada. Corriendo desde el código, actualizás con git.'
+  : 'Se busca sola al abrir la app, pero descargar e instalar los decidís vos.');
 
+function updateHTML() {
+  const u = estadoUpdate();
+  const accion = accionDeUpdate(u);
   return `
     <div class="ox-section" data-update-fase="${esc(u.fase)}">
       <div class="ox-section__head"><span class="ox-section__title">Actualizaciones</span></div>
@@ -1507,38 +1573,92 @@ function updateHTML() {
           <span class="ox-kv__k">Instalada</span>
           <span class="ox-kv__v ox-mono">${esc(u.versionActual || S.info?.version || '—')}</span>
           <span class="ox-kv__k">Estado</span>
-          <span class="ox-kv__v">${esc(FASE[u.fase] || FASE.inactivo)}${
-            u.fase === 'disponible' && u.version ? `: <b>${esc(u.version)}</b>` : ''}</span>
-          ${u.error ? `<span class="ox-kv__k">Detalle</span>
-            <span class="ox-kv__v ox-danger">${esc(u.error)}</span>` : ''}
+          <span class="ox-kv__v" data-update-estado>${estadoUpdateHTML(u)}</span>
         </div>
-        <div class="ox-row" style="gap:12px;align-items:center;margin-top:16px;flex-wrap:wrap">${accion}</div>
-        <span class="ox-field__hint" style="margin-top:12px;display:block">${esc(nota)}</span>
+        <div class="ox-plegable ph-update-detalle"${u.error ? '' : ' hidden'}><div class="ox-kv">
+          <span class="ox-kv__k">Detalle</span>
+          <span class="ox-kv__v ox-danger" data-update-detalle>${esc(u.error || '')}</span>
+        </div></div>
+        <div class="ox-row ph-update-accion" data-update-accion="${accion.clave}">${accion.html}</div>
+        <span class="ox-field__hint" data-update-nota style="margin-top:12px;display:block">${esc(notaUpdate(u))}</span>
       </div></div>
     </div>`;
 }
 
-/** Repinta SOLO la caja de actualizaciones. Repintar Ajustes entera en cada
-    aviso de progreso le robaría el foco al campo de horas mientras escribís. */
+/* «Buscando…» se sostiene un mínimo. Con la respuesta en el acto (sin red que
+   esperar, o corriendo desde el código) el spinner se prendía y se apagaba en
+   el mismo instante: un parpadeo, y encima no se llegaba a leer que buscó. */
+const BUSCANDO_MINIMO = 600;
+
+/** Repinta SOLO lo que cambió de la caja de actualizaciones. Repintar Ajustes
+    entera en cada aviso de progreso le robaría el foco al campo de horas. */
 function pintarUpdate() {
   if (Router.name !== 'ajustes') return;
   const caja = document.getElementById('caja-update');
   if (!caja) return;
-  const u = S.update || { fase: 'inactivo' };
-  const actual = caja.querySelector('[data-update-fase]');
-  if (u.fase === 'descargando' && actual?.dataset.updateFase === 'descargando') {
-    const progreso = Math.round(Number(u.progreso) || 0);
-    actual.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${progreso}%`);
-    setText(actual.querySelector('[data-update-progreso]'), `${progreso}%`);
+  const u = estadoUpdate();
+
+  const espera = (S.buscandoHasta || 0) - Date.now();
+  if (espera > 0 && u.fase !== 'buscando') {
+    clearTimeout(S.timerUpdate);
+    S.timerUpdate = setTimeout(pintarUpdate, espera);
     return;
   }
-  replaceHTML(caja, updateHTML(), { kind: 'rise' });
-  Icons.mount(caja);
+
+  const sec = caja.querySelector('[data-update-fase]');
+  if (!sec) {
+    caja.innerHTML = updateHTML();
+    Icons.mount(caja);
+    return;
+  }
+  sec.dataset.updateFase = u.fase;
+
+  relevo(sec.querySelector('[data-update-estado]'), estadoUpdateHTML(u));
+
+  const detalle = sec.querySelector('.ph-update-detalle');
+  if (u.error) {
+    const texto = detalle.querySelector('[data-update-detalle]');
+    if (detalle.hidden) texto.textContent = u.error;
+    else relevo(texto, esc(u.error));
+  }
+  // El texto del error se queda mientras se pliega: borrarlo antes lo cortaría.
+  detalle.hidden = !u.error;
+
+  const fila = sec.querySelector('[data-update-accion]');
+  const accion = accionDeUpdate(u);
+  if (fila.dataset.updateAccion !== accion.clave) {
+    fila.dataset.updateAccion = accion.clave;
+    relevo(fila, accion.html, { montar: Icons.mount });
+  } else if (accion.clave === 'buscar') {
+    // `:scope >`: durante un relevo, el calco que se va también tiene su botón.
+    const btn = fila.querySelector(':scope > [data-action="buscar-update"]');
+    const ocupado = u.fase === 'buscando';
+    if (btn) {
+      btn.disabled = ocupado;
+      btn.querySelector('.ph-ocupable')?.classList.toggle('is-ocupado', ocupado);
+    }
+  } else if (accion.clave === 'progreso') {
+    // El progreso avanza solo: la barra se desliza y el número cambia SIN
+    // animarse, que con un aviso cada pocos milisegundos parpadeaba sin parar.
+    const progreso = Math.round(Number(u.progreso) || 0);
+    const barra = fila.querySelector(':scope > .ph-progreso');
+    barra?.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${progreso}%`);
+    setText(barra?.querySelector('[data-update-progreso]'), `${progreso}%`, false);
+  } else {
+    relevo(fila, accion.html, { montar: Icons.mount });
+  }
+
+  relevo(sec.querySelector('[data-update-nota]'), esc(notaUpdate(u)));
 }
 
 async function accionUpdate(a) {
   if (a === 'buscar-update') {
-    S.update = await attempt(() => api.update.buscar(), { errorTitle: 'No se pudo buscar' });
+    // El botón responde en el acto, sin esperar a que el proceso principal avise.
+    S.buscandoHasta = Date.now() + BUSCANDO_MINIMO;
+    S.update = { ...estadoUpdate(), fase: 'buscando', error: null };
+    pintarUpdate();
+    const r = await attempt(() => api.update.buscar(), { errorTitle: 'No se pudo buscar' });
+    if (r) S.update = r;
     pintarUpdate();
     return;
   }
@@ -1698,7 +1818,7 @@ function wireShell() {
   const maxBtn = document.getElementById('win-max');
   maxBtn?.addEventListener('click', () => w?.toggleMaximize());
   w?.onMaximized((isMax) => {
-    replaceHTML(maxBtn, Icons.svg(isMax ? 'winRestore' : 'winMax'), { kind: 'fade', duration: 110 });
+    relevo(maxBtn, Icons.svg(isMax ? 'winRestore' : 'winMax'));
     maxBtn.setAttribute('aria-label', isMax ? 'Restaurar' : 'Maximizar');
   });
 
@@ -1818,6 +1938,31 @@ async function vaciarCache() {
 }
 
 /** Todo lo que vive fuera de la vista: statusbar y contadores del rail. */
+/* El indicador del rail es UNO solo que viaja de un ítem al otro, como la
+   cápsula del segmentado. Antes cada ítem tenía el suyo: el viejo se encogía
+   y el nuevo crecía, y con Buscar → Ajustes eran dos cosas pasando en dos
+   lugares a la vez. El primer acomodo (el arranque) va sin viaje. */
+function moverIndicadorRail() {
+  const nav = document.querySelector('.ox-rail__nav');
+  if (!nav) return;
+  let ind = nav.querySelector(':scope > .ph-rail-ind');
+  const nuevo = !ind;
+  if (nuevo) {
+    ind = document.createElement('span');
+    ind.className = 'ph-rail-ind is-quieto';
+    nav.prepend(ind);
+  }
+  const item = nav.querySelector('.ox-navitem.is-active');
+  ind.classList.toggle('is-on', !!item);
+  if (item) {
+    const x = item.offsetLeft - 12;
+    const y = item.offsetTop + (item.offsetHeight - 16) / 2;
+    ind.style.setProperty('--ind-x', `${x}px`);
+    ind.style.setProperty('--ind-y', `${y}px`);
+  }
+  if (nuevo) raf2(() => ind.classList.remove('is-quieto'));
+}
+
 function updateChrome() {
   const cf = document.querySelector('[data-view="favoritos"] .ox-navitem__count');
   setText(cf, S.favoritos.length);
@@ -1832,12 +1977,13 @@ function updateChrome() {
   const sc = document.querySelector('#stat-carrito .ox-statusbar__value');
   if (sc) {
     const t = totalesCarrito();
-    setText(sc, S.carrito.length ? `${fmtPesos(t.total)} · ${plural(t.unidades, 'unidad', 'unidades')}` : 'carrito vacío');
+    // Una frase que cambia por otra va con relevo; el destello es para números.
+    relevo(sc, esc(S.carrito.length ? `${fmtPesos(t.total)} · ${plural(t.unidades, 'unidad', 'unidades')}` : 'carrito vacío'));
   }
 
   const d = descuento();
   const valor = document.querySelector('#stat-descuento .ox-statusbar__value');
-  setText(valor, d.activo ? `−${d.porcentaje}%` : 'sin descuento');
+  relevo(valor, esc(d.activo ? `−${d.porcentaje}%` : 'sin descuento'));
 
   const ctx = document.getElementById('titlebar-context');
   if (ctx) {
@@ -1845,8 +1991,9 @@ function updateChrome() {
       ? (S.ficha?.nombre || S.refs.get(Router.param)?.nombre || '')
       : '';
     // Relevo y no reemplazo: al salir de la ficha el nombre se esfuma en vez de
-    // desaparecer, y de un producto a otro el viejo se va antes de que entre el
-    // nuevo, sin quedar los dos encimados en el mismo lugar.
+    // desaparecer, y de un producto a otro el nuevo asoma recién cuando el
+    // viejo ya va por un tercio, en el mismo lugar (el contexto está centrado
+    // también por dentro, así que el que se va no se corre).
     swap(ctx, nombre
       ? `${Icons.svg('pildora', 'ox-icon--sm')}<span>${esc(nombre)}</span>`
       : '');
@@ -1854,7 +2001,7 @@ function updateChrome() {
 
   const dir = S.info?.dataDir || '';
   const foot = document.getElementById('rail-foot');
-  replaceHTML(foot, dir ? `<div class="ox-meta" data-tip="${esc(dir)}">${path(dir)}</div>` : '', { kind: 'fade' });
+  relevo(foot, dir ? `<div class="ox-meta" data-tip="${esc(dir)}">${path(dir)}</div>` : '');
 }
 
 /* ══ Color de la ventana ═════════════════════════════════════════════════════
@@ -1899,6 +2046,7 @@ async function boot() {
 
   updateChrome();
   Router.onChange(updateChrome);
+  Router.onChange(moverIndicadorRail);
   Router.go('buscar');
 
   // El splash se va recién cuando ya hay algo pintado debajo. El doble rAF
