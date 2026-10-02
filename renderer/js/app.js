@@ -27,10 +27,12 @@ const favoritos = api.col('favoritos');
    16, trazo 1.5, contenido entre 1.8 y 14.2. */
 
 Icons.add({
-  /* La marca: la torre, y aparte su luz. Son dos piezas para que el splash
-     pueda dibujar la torre primero y encender la luz después. */
-  faro: '<path d="M6.5 13.7 7.1 6.7h1.8l.6 7z"/><path d="M6.7 6.7V4.5h2.6v2.2"/>'
-      + '<path d="M4.6 13.7h6.8"/><path d="M5.2 3.4 3 2.3M10.8 3.4 13 2.3"/>',
+  /* La marca: el MISMO dibujo que el ícono de la app (tools/icono.cjs), la
+     titlebar y el splash — torre con techo y lámpara, y dos haces por lado.
+     Va con el trazo fino del ícono y la luz tenue, como atributos de cada
+     path para que ganen sobre el 1.5 que hereda del set. */
+  faro: '<path stroke-width=".95" d="M6.2 13.9 7 6.6h2l.8 7.3zM4.3 13.9h7.4M6.6 6.6V4.4h2.8v2.2M6.9 4.4 8 2.6l1.1 1.8M7.3 5.2h1.4"/>'
+      + '<path stroke-width=".95" opacity=".5" d="M5.6 3.2 3.4 2.1M10.4 3.2l2.2-1.1M4.9 5.5 2.4 5.1M11.1 5.5l2.5-.4"/>',
 
   estrella: '<path d="M8 2.2l1.8 3.7 4.1.6-3 2.9.7 4.1L8 11.6l-3.6 1.9.7-4.1-3-2.9 4.1-.6z"/>',
 

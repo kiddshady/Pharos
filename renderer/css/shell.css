@@ -35,8 +35,10 @@
   transition: var(--tr-color);
 }
 .ox-brand:hover { color: var(--ox-text); }
-.ox-brand__mark { width: 18px; height: 18px; color: var(--ox-accent); }
-.ox-brand__mark .ox-brand__trail { opacity: .34; }
+/* El faro lleva el trazo fino del ícono de la app (0.95), no el 1.5 del set:
+   con techo y lámpara, a 1.5 los huecos se cierran. */
+.ox-brand__mark { width: 18px; height: 18px; color: var(--ox-accent); stroke-width: .95; }
+.ox-brand__mark .ox-brand__trail { opacity: .5; }
 .ox-brand__name {
   font-size: var(--ox-fs-11);
   font-weight: var(--ox-w-semi);

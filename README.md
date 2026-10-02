@@ -147,9 +147,11 @@ sola vez, al cargarse el módulo.
 "Windows protegió tu PC": *Más información* → *Ejecutar de todas formas*.
 Firmarlo de verdad necesita un certificado de code signing pago.
 
-El ícono de la app no es el mismo dibujo que la marca de la titlebar, y es a
-propósito: la de la UI está hecha para 16px y a 256 se lee como una antena.
-`tools/icono.cjs` tiene la versión con detalle y explica por qué. El de la
+El faro es **un solo dibujo** en todos lados: el ícono de la app, la marca de
+la titlebar, el splash y el estado vacío del buscador —torre con techo y
+lámpara, dos haces por lado—, con el mismo trazo fino. La fuente es
+`tools/icono.cjs`; si cambia, se copia igual a `renderer/index.html` y al
+`faro` de `renderer/js/app.js`. El de la
 bandeja es **ese mismo dibujo** —baldosa, halo y faro—, rasterizado aparte
 para cada escala de Windows (16/20/24/32 px) en un `.ico`, con un piso de
 grosor de trazo para que a 16px no se haga barro; con un solo PNG el

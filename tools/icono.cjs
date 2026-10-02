@@ -7,21 +7,18 @@
                       Windows pide a 100/125/150/200 % de escala) más 40, 48
                       y 64 por si algún menú lo muestra grande.
 
-   ── Por qué el ícono NO es el mismo dibujo que la marca de la titlebar ──────
-   La marca de la UI está dibujada para 16px: ahí cualquier detalle se
-   convierte en barro, así que es una silueta pelada de torre y dos haces. El
-   ícono de la app vive entre 24 y 256px, y a ese tamaño esa misma silueta se
-   lee como una antena o una torre de alta tensión — le falta lo único que
-   dice "faro", que es el techo.
+   ── Este es EL faro: la UI usa el mismo dibujo ──────────────────────────────
+   La titlebar, el splash y el estado vacío del buscador llevan estos mismos
+   paths (TORRE + LAMPARA en uno, LUZ en otro): torre con techo, lámpara y dos
+   haces por lado. Hubo una versión pelada para la UI, sin techo y con un haz
+   por lado, y se leía como una adaptación del ícono en vez de la misma marca.
+   Si tocás el dibujo acá, copialo igual a renderer/index.html (splash y
+   titlebar) y al `faro` de renderer/js/app.js.
 
-   Así que esta es la versión con detalle de la MISMA marca: la torre y la
-   base son las de siempre, más el remate del techo, la lámpara y los haces en
-   abanico. Es lo que hace cualquier set de íconos serio: una versión por
-   rango de tamaño, no un escalado.
-
-   Y el trazo va más fino que el 1.5 del set base por la misma razón: escalar
-   1.5 de una grilla de 16 hasta 512 da un trazo de 30px que cierra todos los
-   huecos del dibujo.
+   El trazo va más fino que el 1.5 del set base: escalar 1.5 de una grilla de
+   16 hasta 512 da un trazo de 30px que cierra todos los huecos del dibujo, y
+   en la UI pasa lo mismo con el techo y la lámpara. Por eso allá también va
+   en 0.95.
 
    ── La bandeja lleva el MISMO dibujo, no la marca chica ─────────────────────
    La bandeja del sistema convive con el ícono de la taskbar, y tienen que ser

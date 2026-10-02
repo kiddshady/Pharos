@@ -30,21 +30,21 @@
     transition: opacity .34s cubic-bezier(.16, 1, .3, 1);
   }
   #boot-splash svg { width: 46px; height: 46px; stroke: #f2f4f7; fill: none;
-                     stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+                     stroke-width: .95; stroke-linecap: round; stroke-linejoin: round; }
   /* La marca se DIBUJA, no aparece: el canto primero, la mesa detrás. */
-  #boot-splash path { stroke-dasharray: 34; stroke-dashoffset: 34;
+  #boot-splash path { stroke-dasharray: 40; stroke-dashoffset: 40;
                       animation: boot-draw .72s cubic-bezier(.16,1,.3,1) forwards; }
   /* La luz del faro: entra después de la torre y se queda tenue. Encender la
      luz es lo último que pasa, como en un faro de verdad. */
   #boot-splash path:last-child { stroke-dasharray: 11; stroke-dashoffset: 11;
-                                 opacity: .34; animation-delay: .22s; }
+                                 opacity: .5; animation-delay: .22s; }
   @keyframes boot-draw { to { stroke-dashoffset: 0 } }
 </style>
 
 <div id="boot-splash">
   <svg viewBox="0 0 16 16">
-    <path d="M6.5 13.7 7.1 6.7h1.8l.6 7zM6.7 6.7V4.5h2.6v2.2M4.6 13.7h6.8"/>
-    <path d="M5.2 3.4 3 2.3M10.8 3.4 13 2.3"/>
+    <path d="M6.2 13.9 7 6.6h2l.8 7.3zM4.3 13.9h7.4M6.6 6.6V4.4h2.8v2.2M6.9 4.4 8 2.6l1.1 1.8M7.3 5.2h1.4"/>
+    <path d="M5.6 3.2 3.4 2.1M10.4 3.2l2.2-1.1M4.9 5.5 2.4 5.1M11.1 5.5l2.5-.4"/>
   </svg>
 </div>
 
@@ -54,8 +54,8 @@
   <header class="ox-titlebar">
     <div class="ox-brand ox-no-drag" data-tip="Pharos" id="brand">
       <svg class="ox-brand__mark ox-icon" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M6.5 13.7 7.1 6.7h1.8l.6 7zM6.7 6.7V4.5h2.6v2.2M4.6 13.7h6.8"/>
-        <path class="ox-brand__trail" d="M5.2 3.4 3 2.3M10.8 3.4 13 2.3"/>
+        <path d="M6.2 13.9 7 6.6h2l.8 7.3zM4.3 13.9h7.4M6.6 6.6V4.4h2.8v2.2M6.9 4.4 8 2.6l1.1 1.8M7.3 5.2h1.4"/>
+        <path class="ox-brand__trail" d="M5.6 3.2 3.4 2.1M10.4 3.2l2.2-1.1M4.9 5.5 2.4 5.1M11.1 5.5l2.5-.4"/>
       </svg>
       <span class="ox-brand__name">Pharos</span>
     </div>
