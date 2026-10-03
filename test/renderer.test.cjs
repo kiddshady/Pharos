@@ -1091,6 +1091,27 @@ app.whenReady().then(async () => {
   })()`);
   const mMinimo = (xs) => Math.min(...xs);
 
+  /* El calco de relevo() mide la caja con decimales. La primera versión
+     usaba clientWidth, que redondea: a una frase de 105,06 px le tocaban 105
+     y se partía en dos renglones igual (salió en Finway). El letter-spacing
+     asegura un ancho fraccionario. */
+  const fraccion = await js(`(async () => {
+    const { relevo } = await import('./js/motion.js');
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:40px;top:40px;width:420px;display:flex;z-index:50';
+    host.innerHTML = '<div style="flex:1"></div><span class="ox-meta" style="letter-spacing:.0137px">Mostrando precios con <b>40%</b> menos</span>';
+    document.body.append(host);
+    const frase = host.lastElementChild;
+    const alto = frase.getBoundingClientRect().height;
+    relevo(frase, 'Mostrando precios de lista');
+    const calco = frase.querySelector(':scope > .ox-relevo-calco');
+    const r = { alto, calco: calco ? calco.scrollHeight : null };
+    host.remove();
+    return r;
+  })()`);
+  ok('el calco mide con decimales: una frase de ancho fraccionario no se parte',
+    fraccion.calco != null && fraccion.calco <= fraccion.alto + 1, JSON.stringify(fraccion));
+
   // 10.1 Navegar: la pantalla tapada en todo momento, la nueva quieta.
   await click('[data-view="buscar"]');
   await sleep(700);

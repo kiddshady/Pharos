@@ -179,8 +179,7 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null,
   let antes = null;
   if (habia && animar) {
     running.get(el)?.cancel();
-    const r = el.getBoundingClientRect();
-    antes = { left: r.left, top: r.top, w: el.clientWidth, h: el.clientHeight };
+    antes = cajaDe(el);
     calco = document.createElement('div');
     calco.className = 'ox-relevo-calco';
     calco.inert = true;
@@ -216,11 +215,11 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null,
 
   // El calco, clavado en la caja vieja: medida ya con lo nuevo adentro.
   if (calco) {
-    const r = el.getBoundingClientRect();
+    const ahora = cajaDe(el);
     Object.assign(calco.style, {
       inset: 'auto',
-      left: `${antes.left - r.left - el.clientLeft}px`,
-      top: `${antes.top - r.top - el.clientTop}px`,
+      left: `${antes.left - ahora.left}px`,
+      top: `${antes.top - ahora.top}px`,
       width: `${antes.w}px`,
       height: `${antes.h}px`,
     });
@@ -238,6 +237,22 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null,
   // una lista larga no tarde en terminar de llegar.
   filas.forEach((f, i) => animateIn(f, { kind: 'lift', delay: espera + Math.min(i, 10) * 24 }));
   return true;
+}
+
+/* La caja de relleno de `el` (donde se apoya un hijo absoluto), con
+   decimales. clientWidth redondea: a una frase de 105,06 px le daba 105 y
+   no entraba —se partía en dos renglones igual—. Salió en Finway. */
+function cajaDe(el) {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  const bl = parseFloat(cs.borderLeftWidth) || 0;
+  const bt = parseFloat(cs.borderTopWidth) || 0;
+  return {
+    left: r.left + bl,
+    top: r.top + bt,
+    w: r.width - bl - (parseFloat(cs.borderRightWidth) || 0),
+    h: r.height - bt - (parseFloat(cs.borderBottomWidth) || 0),
+  };
 }
 
 /** El primer fondo opaco hacia arriba: lo que el calco de un fundido tiene que
