@@ -146,11 +146,25 @@ export function cambiarValor(el, html) {
  * Los textos sueltos se envuelven en un <span> para poder animarlos.
  * `escalonar`: un selector de lo que entra escalonado (las filas de una lista)
  * en vez de todo junto.
+ *
+ * El calco conserva la caja que tenía lo viejo (su ancho, su alto y dónde
+ * caía), no la del contenedor ya con lo nuevo. Antes copiaba la nueva: una
+ * frase que se iba dentro de una caja más angosta se partía en dos renglones
+ * mientras se esfumaba (el «Mostrando precios con 40 % menos» de la ficha al
+ * apagar el descuento), y una más ancha se corría.
+ *
+ * `fundido`: para un bloque grande (una tabla que gana o pierde columnas). La
+ * espera del relevo destapa: a mitad de camino lo viejo va por la mitad y lo
+ * nuevo por un tercio, y la tabla entera queda a media luz —se lee como un
+ * parpadeo—. Con fundido, el calco lleva el fondo opaco de lo que tiene
+ * detrás y lo nuevo está entero y quieto debajo desde el primer cuadro: lo
+ * único que se mueve es cuánto se ve del calco.
  */
 const RELEVO_SALIDA = 160;
 const RELEVO_ESPERA = 70;
+const FUNDIDO = 180;
 
-export function relevo(el, html, { montar, entrada = 'appear', escalonar = null } = {}) {
+export function relevo(el, html, { montar, entrada = 'appear', escalonar = null, fundido = false } = {}) {
   if (!el) return false;
   const vivos = [...el.childNodes].filter((n) => !(n.nodeType === 1 && n.classList.contains('ox-relevo-calco')));
   const caja = document.createElement('div');
@@ -161,15 +175,24 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null 
   const habia = vivos.some((n) => n.nodeType === 1 || n.textContent.trim());
   const animar = !reduceMotion() && typeof el.animate === 'function';
 
+  let calco = null;
+  let antes = null;
   if (habia && animar) {
     running.get(el)?.cancel();
-    const calco = document.createElement('div');
+    const r = el.getBoundingClientRect();
+    antes = { left: r.left, top: r.top, w: el.clientWidth, h: el.clientHeight };
+    calco = document.createElement('div');
     calco.className = 'ox-relevo-calco';
     calco.inert = true;
     calco.setAttribute('aria-hidden', 'true');
     calco.append(...vivos);
     for (const x of calco.querySelectorAll('[id]')) x.removeAttribute('id');
     if (getComputedStyle(el).position === 'static') el.classList.add('ox-relevo-host');
+    // Y por encima del encabezado sticky de la tabla nueva (z-index 2): si no,
+    // el título nuevo se ve desde el primer cuadro sobre las cifras viejas. Solo
+    // en el fundido: un relevo chico adentro de una celda tiene que seguir
+    // pasando por DEBAJO del encabezado clavado de su tabla.
+    if (fundido) Object.assign(calco.style, { background: fondoDetras(el), zIndex: 3 });
     el.prepend(calco);
     // Lo que todavía estaba entrando se da por entrado: el calco se va desde
     // donde lo agarró, no vuelve a arrancar adentro (lo que gira, sigue).
@@ -178,7 +201,7 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null 
     }
     // In-out y no ease-in: hay alguien esperando detrás.
     const salida = calco.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: RELEVO_SALIDA, easing: EASE_BOTH, fill: 'forwards',
+      duration: fundido ? FUNDIDO : RELEVO_SALIDA, easing: EASE_BOTH, fill: 'forwards',
     });
     salida.finished.catch(() => {}).then(() => calco.remove());
   } else {
@@ -190,7 +213,19 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null 
   const nuevos = [...tpl.content.children];
   el.append(tpl.content);
   montar?.(el);
-  if (!animar) return true;
+
+  // El calco, clavado en la caja vieja: medida ya con lo nuevo adentro.
+  if (calco) {
+    const r = el.getBoundingClientRect();
+    Object.assign(calco.style, {
+      inset: 'auto',
+      left: `${antes.left - r.left - el.clientLeft}px`,
+      top: `${antes.top - r.top - el.clientTop}px`,
+      width: `${antes.w}px`,
+      height: `${antes.h}px`,
+    });
+  }
+  if (!animar || (fundido && habia)) return true;
 
   // Si no había nada, lo nuevo entra sin esperar: la espera es solo para relevar.
   const espera = habia ? RELEVO_ESPERA : 0;
@@ -203,6 +238,25 @@ export function relevo(el, html, { montar, entrada = 'appear', escalonar = null 
   // una lista larga no tarde en terminar de llegar.
   filas.forEach((f, i) => animateIn(f, { kind: 'lift', delay: espera + Math.min(i, 10) * 24 }));
   return true;
+}
+
+/** El primer fondo opaco hacia arriba: lo que el calco de un fundido tiene que
+    llevar para tapar lo nuevo sin que se note un parche. */
+function fondoDetras(el) {
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    const bg = getComputedStyle(n).backgroundColor;
+    if (alfaDe(bg) >= 1) return bg;
+  }
+  return getComputedStyle(document.body).backgroundColor;
+}
+
+/** La opacidad de un color computado: `rgba(…, a)`, `oklch(… / a)` o sin alfa. */
+function alfaDe(color) {
+  if (!color || color === 'transparent') return 0;
+  const barra = color.match(/\/\s*([\d.]+)(%?)\s*\)$/);
+  if (barra) return Number(barra[1]) / (barra[2] ? 100 : 1);
+  const rgba = color.match(/^rgba\((?:[^,]+,){3}\s*([\d.]+)\s*\)$/);
+  return rgba ? Number(rgba[1]) : 1;
 }
 
 /** Un texto suelto entre elementos no se puede animar: va en un <span>. */

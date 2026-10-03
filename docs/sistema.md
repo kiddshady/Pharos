@@ -453,6 +453,7 @@ cambiado— se leía como un parpadeo. Las herramientas, según la escala:
 ```js
 calcar(host)                         // una SUPERFICIE: fundido con calco opaco
 relevo(el, html, { montar, escalonar }) // un BLOQUE chico: relevo en el lugar
+relevo(el, html, { fundido: true })  // un bloque GRANDE (una tabla): fundido
 swap(el, html, { kind, montar })     // lo mismo que relevo, con la firma vieja
 cambiarValor(el, html)               // un VALOR con markup: en el lugar + destello
 setText(el, valor)                   // un número suelto: en el lugar + destello
@@ -473,9 +474,17 @@ sacarDeslizando(el)                  // saca un nodo y desliza a sus hermanos
   envuelven en un `<span>` para poder animarlos. Con `escalonar` las filas de
   una lista entran una detrás de otra. Es para cosas chicas sobre el mismo
   fondo: el estado de las actualizaciones, la lista de resultados, el nombre de
-  la titlebar, una frase de la statusbar. Un contenedor que vive alineado a la
-  derecha o centrado tiene que estarlo también por dentro (`justify-content`),
-  así el calco deja lo que se va en su lugar.
+  la titlebar, una frase de la statusbar. El calco conserva la caja que tenía
+  lo viejo (ancho, alto y posición), no la del contenedor con lo nuevo: antes
+  una frase que se iba dentro de una caja más angosta se partía en dos
+  renglones mientras se esfumaba.
+- **Bloques grandes (`relevo` con `fundido`).** Una tabla que gana o pierde
+  columnas (la ficha al prender el descuento) no puede esperar su turno: a
+  mitad de camino lo viejo va por la mitad y lo nuevo por un tercio, y la
+  tabla entera queda a media luz. Con `fundido` el calco lleva el fondo opaco
+  de lo que tiene detrás y va por encima del `th` sticky; lo nuevo está entero
+  y quieto debajo desde el primer cuadro. Si solo cambian cifras, ni eso:
+  `morph()` las cambia una por una con `cambiarValor`.
 - **Valores (`cambiarValor`, `setText`).** Un número que cambia no se apaga: se
   reescribe en su lugar y destella en el acento (`tick`). Con el stepper
   apretado queda «encendido» mientras cambia, en vez de parpadear en cada paso.

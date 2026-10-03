@@ -1127,7 +1127,12 @@ function actualizarFicha() {
     campo.value = d.porcentaje;
     campo.dispatchEvent(new Event('input'));   // que las flechas se re-habiliten
   }
-  relevo(document.getElementById('desc-meta'), descuentoMetaHTML(d));
+  /* Si solo cambió el porcentaje, cambia la cifra y nada más: relevar la frase
+     entera la apagaba y la volvía a prender en cada flecha del stepper. */
+  const meta = document.getElementById('desc-meta');
+  const cifra = meta && [...meta.children].find((n) => n.tagName === 'B');
+  if (d.activo && cifra) cambiarValor(cifra, `${d.porcentaje}%`);
+  else relevo(meta, descuentoMetaHTML(d));
 
   const tabla = document.getElementById('ficha-presentaciones');
   if (tabla) morph(tabla, presentacionesHTML(S.ficha.presentaciones, Router.param));
@@ -1137,7 +1142,9 @@ function actualizarFicha() {
  * Pone `html` en `el` tocando lo mínimo. Si las dos versiones tienen las mismas
  * celdas marcadas con `data-k`, solo cambian esas —cada una con su tick— y el
  * resto de la tabla no se entera. Si cambió la forma (aparecieron o se fueron
- * columnas), se reemplaza entero con un fundido.
+ * columnas), se reemplaza entero con un fundido: la tabla nueva quieta debajo
+ * y la vieja esfumándose encima. Con el relevo de los bloques chicos la tabla
+ * entera pasaba a media luz y volvía: el parpadeo al prender el descuento.
  */
 function morph(el, html) {
   const molde = document.createElement('template');
@@ -1147,7 +1154,7 @@ function morph(el, html) {
   const misma = nuevas.length === viejas.length
     && nuevas.every((n, i) => n.dataset.k === viejas[i].dataset.k);
   if (!misma) {
-    relevo(el, html, { montar: Icons.mount });
+    relevo(el, html, { montar: Icons.mount, fundido: true });
     return;
   }
   nuevas.forEach((n, i) => cambiarValor(viejas[i], n.innerHTML));
@@ -1983,7 +1990,11 @@ function updateChrome() {
 
   const d = descuento();
   const valor = document.querySelector('#stat-descuento .ox-statusbar__value');
-  relevo(valor, esc(d.activo ? `−${d.porcentaje}%` : 'sin descuento'));
+  // De un porcentaje a otro es un número que cambia (destello); de «sin
+  // descuento» a un porcentaje, una frase por otra (relevo).
+  const pct = valor && [...valor.children].find((n) => !n.classList.contains('ox-relevo-calco'));
+  if (d.activo && pct?.textContent.startsWith('−')) setText(pct, `−${d.porcentaje}%`);
+  else relevo(valor, esc(d.activo ? `−${d.porcentaje}%` : 'sin descuento'));
 
   const ctx = document.getElementById('titlebar-context');
   if (ctx) {

@@ -322,8 +322,22 @@ app.whenReady().then(async () => {
     /* El descuento, medido sobre lo que se VE. Leer el estado interno no
        probaría nada: el bug que importa es que la tabla muestre un número que
        no es el que corresponde. */
-    await click('[data-pct="20"]');
-    await sleep(700);
+    /* De 25 a 20 cambia la cifra, no la frase: relevar «Mostrando precios con
+       N % menos» entera la apagaba y la prendía en cada flecha del stepper. */
+    const soloCifra = await js(`(async () => {
+      const meta = document.getElementById('desc-meta');
+      const b = [...meta.children].find((n) => n.tagName === 'B');
+      let calco = false;
+      const mo = new MutationObserver(() => { calco ||= !!meta.querySelector('.ox-relevo-calco'); });
+      mo.observe(meta, { childList: true, subtree: true });
+      document.querySelector('[data-pct="20"]').click();
+      await new Promise((r) => setTimeout(r, 400));
+      mo.disconnect();
+      return { calco, mismaCifra: !!b && b.isConnected, dice: b?.textContent };
+    })()`);
+    ok('cambiar el porcentaje cambia solo la cifra de la frase, sin relevarla',
+      !soloCifra.calco && soloCifra.mismaCifra && soloCifra.dice === '20%', JSON.stringify(soloCifra));
+    await sleep(300);
 
     const columnas = await js(`document.querySelectorAll('.ox-table thead th').length`);
     // Presentación · Lista · Con % · Ahorro · Vigente · (carrito)
@@ -372,9 +386,37 @@ app.whenReady().then(async () => {
     ok('el descuento queda guardado',
       (await js(`window.onyx.settings.get().then((s) => s.descuento.porcentaje)`)) === 20);
 
-    // Y se puede apagar sin perder el número, que es el motivo de que exista el switch.
-    await click('#sw-descuento');
-    await sleep(600);
+    /* Y se puede apagar sin perder el número, que es el motivo de que exista el
+       switch. Se apaga muestreando cada cuadro, porque los dos bugs que hubo
+       acá vivían a mitad del movimiento:
+       - la frase vieja se esfumaba dentro de la caja de la nueva, más angosta,
+         y se partía en dos renglones («Mostrando precios con / 40% menos»);
+       - la tabla cambiaba de columnas con el relevo de los bloques chicos y
+         pasaba entera a media luz: la nueva tiene que estar entera debajo desde
+         el primer cuadro (fundido). */
+    const apagando = await js(`(async () => {
+      const meta = document.getElementById('desc-meta');
+      const alto = meta.getBoundingClientRect().height;
+      const tabla = document.getElementById('ficha-presentaciones');
+      document.getElementById('sw-descuento').click();
+      const r = { altoFrase: alto, calcoFrase: 0, tablaNueva: 1, vioCalcoTabla: false };
+      const t0 = performance.now();
+      while (performance.now() - t0 < 400) {
+        await new Promise((ok) => requestAnimationFrame(ok));
+        const cm = meta.querySelector('.ox-relevo-calco');
+        if (cm) r.calcoFrase = Math.max(r.calcoFrase, cm.getBoundingClientRect().height, cm.scrollHeight);
+        if (tabla.querySelector(':scope > .ox-relevo-calco')) r.vioCalcoTabla = true;
+        for (const n of tabla.children) {
+          if (!n.classList.contains('ox-relevo-calco')) r.tablaNueva = Math.min(r.tablaNueva, +getComputedStyle(n).opacity);
+        }
+      }
+      return r;
+    })()`);
+    ok('al apagar, la frase que se va no se parte en dos renglones',
+      apagando.calcoFrase > 0 && apagando.calcoFrase <= apagando.altoFrase + 1, JSON.stringify(apagando));
+    ok('y la tabla nueva está entera debajo de la vieja (fundido, sin media luz)',
+      apagando.vioCalcoTabla && apagando.tablaNueva === 1, JSON.stringify(apagando));
+    await sleep(300);
     const apagado = await js(`window.onyx.settings.get().then((s) => s.descuento)`);
     ok('apagarlo conserva el porcentaje',
       apagado && apagado.activo === false && apagado.porcentaje === 20, JSON.stringify(apagado));
