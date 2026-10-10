@@ -103,8 +103,11 @@ const Tooltip = (() => {
       if (el && el === anchor) hide();
       else if (el) clearTimeout(timer);
     });
-    // Un tooltip flotando sobre un click o un scroll es basura visual.
-    root.addEventListener('pointerdown', () => hide(true));
+    /* Un tooltip flotando sobre un click o un scroll es basura visual. Al
+       click se va con su salida: cortado con remove() desaparecía de
+       un cuadro al otro justo donde uno está mirando. Al scroll sí en el acto,
+       porque quedaría flotando separado de lo que señala. */
+    root.addEventListener('pointerdown', () => hide());
     window.addEventListener('scroll', () => hide(true), true);
     window.addEventListener('blur', () => hide(true));
   }
