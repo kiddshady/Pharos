@@ -1183,6 +1183,20 @@ app.whenReady().then(async () => {
   for (let p = 5; p <= 60; p += 5) { mEnviar({ fase: 'descargando', progreso: p }); await sleep(55); }
   const mPct = await mPctCurva;
   ok('el porcentaje de la descarga cambia sin parpadear', mMinimo(mPct) > 0.99, `mínimo ${mMinimo(mPct).toFixed(2)}`);
+  // Y corre (roll) en vez de saltar, sin destello: de 60 a 90 pasa por el medio.
+  await sleep(500);
+  const mRoll = js(`(async () => { const v = [];
+    for (let i = 0; i < 8; i++) { await new Promise((r) => requestAnimationFrame(r));
+      const p = document.querySelector('[data-update-progreso]');
+      v.push({ n: parseInt(p.textContent, 10), tick: p.classList.contains('ox-ticked') }); }
+    return v; })()`);
+  mEnviar({ fase: 'descargando', progreso: 90 });
+  const mCorre = await mRoll;
+  await sleep(500);
+  ok('y el número corre hasta el nuevo, sin destello',
+    mCorre.some((f) => f.n > 60 && f.n < 90) && !mCorre.some((f) => f.tick)
+      && (await js(`document.querySelector('[data-update-progreso]').textContent`)) === '90%',
+    JSON.stringify(mCorre.map((f) => f.n)));
 
   mEnviar({ fase: 'al-dia' });
   await sleep(500);

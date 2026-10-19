@@ -12,7 +12,7 @@ import { Tooltip, Toast, Modal } from './overlays.js';
 import Router from './router.js';
 import {
   initClickFlash, initScrollFades, leave, raf2,
-  bindSwitcher, bindStepper, setText, swap, relevo, cambiarValor,
+  bindSwitcher, bindStepper, setText, swap, relevo, cambiarValor, roll,
 } from './motion.js';
 import { esc, paint, head, empty, attempt, copy, colorToken, path } from './ui.js';
 import { fmtPesos, fmtBytes, relTime, plural } from './format.js';
@@ -1645,12 +1645,15 @@ function pintarUpdate() {
       btn.querySelector('.ph-ocupable')?.classList.toggle('is-ocupado', ocupado);
     }
   } else if (accion.clave === 'progreso') {
-    // El progreso avanza solo: la barra se desliza y el número cambia SIN
-    // animarse, que con un aviso cada pocos milisegundos parpadeaba sin parar.
+    // El progreso avanza solo: la barra se desliza y el número corre (roll)
+    // SIN destello, que con un aviso cada pocos milisegundos parpadeaba sin
+    // parar. Arranca de lo que ya dice el número que armó el relevo.
     const progreso = Math.round(Number(u.progreso) || 0);
     const barra = fila.querySelector(':scope > .ph-progreso');
     barra?.querySelector('.ox-meter')?.style.setProperty('--ox-pct', `${progreso}%`);
-    setText(barra?.querySelector('[data-update-progreso]'), `${progreso}%`, false);
+    const pct = barra?.querySelector('[data-update-progreso]');
+    roll(pct, progreso, (v) => { pct.textContent = `${Math.round(v)}%`; },
+      { from: parseInt(pct?.textContent, 10) });
   } else {
     relevo(fila, accion.html, { montar: Icons.mount });
   }

@@ -148,10 +148,11 @@ async function descargar() {
   return estado;
 }
 
-/** Cierra la app y lanza el instalador. Solo con la descarga terminada. */
+/** Cierra la app y lanza el instalador en silencio (sin el asistente de NSIS)
+    y la vuelve a abrir. Solo con la descarga terminada. */
 function instalar() {
   if (estado.fase !== 'lista') return false;
-  setImmediate(() => cargar().quitAndInstall(false, true));
+  setImmediate(() => cargar().quitAndInstall(true, true));
   return true;
 }
 
