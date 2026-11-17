@@ -92,9 +92,9 @@ const S = {
   cargando: false,
   /** Si el esqueleto de carga ya se muestra (ver ESPERA_CARGANDO). */
   cargaVisible: false,
-  /** El índice del buscador. No se guarda: cada arranque vuelve a droga, que
-      es la búsqueda que junta todas las marcas para comparar. */
-  modo: 'droga',
+  /** El índice del buscador. No se guarda: cada arranque vuelve a producto,
+      el nombre comercial, que es como Fran busca casi siempre. */
+  modo: 'producto',
 
   /** Ficha del producto abierto, y los precios que se hayan traído para
       comparar. En memoria: el disco ya tiene su propio caché. */
