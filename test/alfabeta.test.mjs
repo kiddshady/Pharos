@@ -32,9 +32,9 @@ const { parseResultados, parseFicha, texto, precio, fecha, desentidad } = _inter
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
-/** Igual que en el cliente: el sitio es ISO-8859-1, no UTF-8. */
+/** Igual que en el cliente. Los fixtures son del sitio viejo, en ISO-8859-1. */
 const fixture = (n) =>
-  new TextDecoder('iso-8859-1').decode(fs.readFileSync(path.join(DIR, `${n}.html`)));
+  _internos.decodificar(fs.readFileSync(path.join(DIR, `${n}.html`)));
 
 let pass = 0;
 let fail = 0;
@@ -161,6 +161,27 @@ ok('una ficha vacía devuelve la forma esperada',
   parseFicha('').presentaciones.length === 0 && parseFicha('').nombre === '');
 ok('HTML cortado a la mitad tampoco',
   parseFicha(fixture('ficha-producto').slice(0, 15000)).presentaciones.length >= 0);
+
+/* ── Codificación ─────────────────────────────────────────────────────────── */
+
+/* El sitio pasó de ISO-8859-1 a UTF-8 alrededor del 17/11/2026 y la app
+   mostró «cÃ¡ps» durante días. La misma ficha, en los dos formatos, tiene que
+   dar exactamente lo mismo. */
+console.log('\n7. Latin-1 o UTF-8, da igual');
+
+const crudo = fs.readFileSync(path.join(DIR, 'ficha-producto.html'));
+const enUtf8 = Buffer.from(new TextDecoder('windows-1252').decode(crudo), 'utf8');
+const fLatin = parseFicha(_internos.decodificar(crudo));
+const fUtf8 = parseFicha(_internos.decodificar(enUtf8));
+ok('el fixture de verdad tiene acentos (si no, el test no prueba nada)',
+  /[áéíóúñÁÉÍÓÚÑ]/.test(_internos.decodificar(crudo)));
+ok('la misma ficha en UTF-8 se parsea idéntica',
+  JSON.stringify(fLatin) === JSON.stringify(fUtf8));
+ok('y sin rastros de «Ã»', !/Ã|Â|�/.test(JSON.stringify(fUtf8)));
+ok('UTF-8 suelto: «cáps.x 7»',
+  _internos.decodificar(Buffer.from('10 mg cáps.x 7', 'utf8')) === '10 mg cáps.x 7');
+ok('Latin-1 suelto: «cáps.x 7»',
+  _internos.decodificar(Buffer.from('10 mg cáps.x 7', 'latin1')) === '10 mg cáps.x 7');
 
 console.log(`\n═══ ${pass} ok · ${fail} fallas ═══`);
 process.exit(fail ? 1 : 0);

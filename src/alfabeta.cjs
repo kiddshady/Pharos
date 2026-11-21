@@ -116,10 +116,8 @@ async function pedir(ruta, campos) {
       if (!res.ok) throw new Error(`alfabeta.net respondió ${res.status}`);
       recordarCookie(res);
 
-      /* Acá está la trampa #1: el sitio es ISO-8859-1. Leer con res.text()
-         asume UTF-8 y rompe cada acento del país. */
       const buf = await res.arrayBuffer();
-      return new TextDecoder('iso-8859-1').decode(buf);
+      return decodificar(buf);
     } catch (err) {
       if (err.name === 'AbortError') throw new Error('alfabeta.net tardó demasiado en responder');
       // Sin red, el mensaje de fetch es "fetch failed", que no le dice nada a nadie.
@@ -134,6 +132,19 @@ async function pedir(ruta, campos) {
 }
 
 /* ══ Texto ═══════════════════════════════════════════════════════════════════ */
+
+/* Acá está la trampa #1: el sitio fue ISO-8859-1 durante años y alrededor del
+   17/11/2026 pasó a UTF-8 sin avisar. Leer UTF-8 como Latin-1 da «cÃ¡ps» en
+   vez de «cáps», y al revés da «c�ps». Por eso no se le cree a ningún
+   encabezado: se prueba UTF-8 estricto (Latin-1 con acentos casi nunca es
+   UTF-8 válido) y, si falla, es el Latin-1 de siempre. Anda con los dos. */
+function decodificar(buf) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    return new TextDecoder('windows-1252').decode(buf);
+  }
+}
 
 const ENTIDADES = {
   nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
@@ -477,5 +488,5 @@ async function ficha({ slug, idL, patron } = {}) {
 module.exports = {
   buscar, productosDe, ficha,
   // Exportados para los tests: son la parte con lógica real y frágil.
-  _internos: { texto, precio, fecha, desentidad, parseResultados, parseFicha, parseCoberturas },
+  _internos: { decodificar, texto, precio, fecha, desentidad, parseResultados, parseFicha, parseCoberturas },
 };
